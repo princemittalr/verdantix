@@ -1,9 +1,9 @@
-# EcoTwin DSU
+# Verdantix
 
 **AI-powered digital twin of Dayananda Sagar University's Harohalli campus.**
 CodeClash 2.0 · Problem Statement 2: AI-Powered Sustainable Campus.
 
-EcoTwin watches campus energy, water and waste using sensor data, computer vision and student photo reports. It runs every problem through one loop: **Detect → Verify → Assign → Prove**. A GenAI copilot turns what the twin sees into ranked actions and weekly sustainability reports, with the impact in rupees and CO₂.
+Verdantix watches campus energy, water and waste using sensor data, computer vision and student photo reports. It runs every problem through one loop: **Detect → Verify → Assign → Prove**. A GenAI copilot turns what the twin sees into ranked actions and weekly sustainability reports, with the impact in rupees and CO₂.
 
 ## What it does
 
@@ -23,7 +23,7 @@ EcoTwin watches campus energy, water and waste using sensor data, computer visio
 
 ## ₹0 running cost
 
-Every part of EcoTwin is free to run:
+Every part of Verdantix is free to run:
 
 | Part | Free option used |
 |---|---|
@@ -35,7 +35,7 @@ Every part of EcoTwin is free to run:
 
 ## Data (all free and open, credited)
 
-DSU has no public datasets, so EcoTwin maps real open data onto DSU's buildings. It scales each source meter's real load shape to Indian benchmark energy intensities. Live sensors plug into the same API.
+DSU has no public datasets, so Verdantix maps real open data onto DSU's buildings. It scales each source meter's real load shape to Indian benchmark energy intensities. Live sensors plug into the same API.
 
 | Need | Dataset | License / source |
 |---|---|---|

@@ -66,10 +66,10 @@ def to_pdf(report):
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, title="EcoTwin DSU weekly sustainability report")
+    doc = SimpleDocTemplate(buf, pagesize=A4, title="Verdantix weekly sustainability report")
     ss = getSampleStyleSheet()
     d = report["data"]
-    story = [Paragraph("EcoTwin DSU - Weekly Sustainability Report", ss["Title"]),
+    story = [Paragraph("Verdantix - Weekly Sustainability Report", ss["Title"]),
              Paragraph(f"Week ending {d['week_ending']} - Harohalli campus - green score {d['green_score']}/100", ss["Normal"]),
              Spacer(1, 10)]
     t = d["totals"]

@@ -1,4 +1,4 @@
-// EcoTwin DSU dashboard: live twin over WebSocket, 3D campus map, operations panel.
+// Verdantix dashboard: live twin over WebSocket, 3D campus map, operations panel.
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const fmt = (n) => (n == null ? "--" : Number(n).toLocaleString("en-IN"));

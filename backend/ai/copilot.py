@@ -1,4 +1,4 @@
-"""EcoTwin copilot: answers facilities questions from live twin data.
+"""Verdantix copilot: answers facilities questions from live twin data.
 
 The model never invents numbers: every figure comes from a tool result, and
 alerts are cited by ID. Without a reachable LLM, a rule-based answer is
@@ -9,7 +9,7 @@ import json
 from ai import local_llm
 from ai.llm import PROVIDERS, LLMUnavailable, run_tools
 
-SYSTEM = """You are EcoTwin, the sustainability copilot for Dayananda Sagar University's Harohalli campus digital twin.
+SYSTEM = """You are Verdantix, the sustainability copilot for Dayananda Sagar University's Harohalli campus digital twin.
 Facilities managers ask you what is wasting energy, water or resources and what to do about it.
 Rules:
 - Use the tools to get facts. Never invent numbers; quote figures exactly as tools return them.

@@ -23,7 +23,7 @@ IMGSZ = int(sys.argv[2]) if len(sys.argv) > 2 else 416
 def main():
     if not (DATA / "train").exists():
         zipfile.ZipFile(ZIP).extractall(DATA)
-    yaml = DATA / "ecotwin.yaml"
+    yaml = DATA / "verdantix.yaml"
     yaml.write_text(
         f"path: {DATA.as_posix()}\ntrain: train/images\nval: valid/images\ntest: test/images\n"
         "nc: 3\nnames: ['Empty', 'Half', 'Overflow']\n", encoding="utf-8")

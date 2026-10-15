@@ -1,4 +1,4 @@
-"""EcoTwin DSU API server.
+"""Verdantix API server.
 
 Run from the repo root:  venv\\Scripts\\python.exe -m uvicorn app:app --app-dir backend --port 8000
 Then open http://localhost:8000
@@ -23,7 +23,7 @@ from twin.hotspots import hotspots
 from vision.detector import Vision
 from vision.reports import ReportDesk
 
-app = FastAPI(title="EcoTwin DSU")
+app = FastAPI(title="Verdantix")
 twin = Twin()
 seeded = twin.backfill(30)
 vision = Vision()
@@ -214,7 +214,7 @@ async def weekly():
 def weekly_pdf():
     r = last_report or report.build(twin, desk)
     return Response(report.to_pdf(r), media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=ecotwin-weekly-report.pdf"})
+                    headers={"Content-Disposition": "attachment; filename=verdantix-weekly-report.pdf"})
 
 
 # ---------- analytics ----------
