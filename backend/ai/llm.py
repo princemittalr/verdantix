@@ -13,7 +13,6 @@ import config as C
 
 PROVIDERS = [
     ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", lambda: C.GEMINI_API_KEY, lambda: C.GEMINI_MODEL),
-    ("openai", "https://api.openai.com/v1/chat/completions", lambda: C.OPENAI_API_KEY, lambda: C.OPENAI_MODEL),
     ("groq", "https://api.groq.com/openai/v1/chat/completions", lambda: C.GROQ_API_KEY, lambda: C.GROQ_MODEL),
 ]
 
@@ -31,10 +30,7 @@ def chat(messages, tools=None, temperature=0.3, max_tokens=4000, only=None):
         if not key():
             errors.append(f"{name}: no key")
             continue
-        if name == "openai":  # reasoning models take max_completion_tokens and only the default temperature
-            body = {"model": model(), "messages": messages, "max_completion_tokens": max_tokens}
-        else:
-            body = {"model": model(), "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        body = {"model": model(), "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"

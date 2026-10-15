@@ -4,6 +4,9 @@ The model never invents numbers: every figure comes from a tool result, and
 alerts are cited by ID. Without a reachable LLM, a rule-based answer is
 built from the same tools so the demo never breaks.
 """
+import json
+
+from ai import local_llm
 from ai.llm import PROVIDERS, LLMUnavailable, run_tools
 
 SYSTEM = """You are EcoTwin, the sustainability copilot for Dayananda Sagar University's Harohalli campus digital twin.
@@ -87,11 +90,33 @@ def ask(twin, question, history=None):
     handlers = make_handlers(twin)
     base = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": question}]
     errors = []
-    # Each attempt runs the whole tool conversation on one provider, in order: Gemini, OpenAI, Groq.
+    # Free providers in order: Gemini (free tier), Groq (free tier), local Qwen on CPU, then rule-based.
     for first in [name for name, _, key, _ in PROVIDERS if key()]:
         try:
             provider, text, log = run_tools(list(base), TOOLS, handlers, provider=first)
             return {"answer": text, "provider": provider, "tools": log}
         except LLMUnavailable as e:
             errors.append(str(e))
+    if local_llm.available():
+        try:
+            facts, used = grounded_facts(handlers, question)
+            text = local_llm.generate(SYSTEM, f"Live twin data (JSON):\n{json.dumps(facts, default=str)[:6000]}\n\nQuestion: {question}")
+            return {"answer": text, "provider": "local-qwen", "tools": [{"tool": t, "args": {}} for t in used], "error": " | ".join(errors)}
+        except Exception as e:
+            errors.append(f"local: {e}")
     return {"answer": fallback_answer(handlers, question), "provider": "offline", "tools": [], "error": " | ".join(errors)}
+
+
+def grounded_facts(handlers, question):
+    """Pick the tool results a question needs, so a small local model can answer from them."""
+    q = question.lower()
+    facts, used = {"overview": handlers["campus_overview"](), "alerts": handlers["list_alerts"]()[:8]}, ["campus_overview", "list_alerts"]
+    if any(w in q for w in ("save", "saving", "what if", "what-if", "led", "solar", "setpoint", "ac ")):
+        facts["simulation"] = handlers["simulate"](ac_setpoint_delta=1, after_hours_cut=0.5, led_retrofit=True, fix_leaks=True)
+        used.append("simulate")
+    if any(w in q for w in ("bin", "route", "pickup", "waste", "garbage")):
+        r = handlers["bins_and_route"]()
+        facts["bins"] = {k: {"fill": v["fill"], "eta_full_h": v["eta_full_h"]} for k, v in r["bins"].items()}
+        facts["route"] = {"stops": r["route"]["stops"], "distance_m": r["route"]["distance_m"]}
+        used.append("bins_and_route")
+    return facts, used

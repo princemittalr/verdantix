@@ -16,10 +16,22 @@ EcoTwin watches campus energy, water and waste using sensor data, computer visio
 | **Computer vision** | YOLO11n counts people for occupancy. CLIP ViT-B/32 zero-shot covers leaks, running taps, lights on in empty rooms and litter, which have no training data. CLIP also verifies the "after fix" proof photo before a work order can close. |
 | **Students as sensors** | Students submit photo reports, which pass ordered checks: on campus, duplicate check (pHash), CLIP issue score, and a repeat check (CLIP similarity within 60 m). |
 | **Hotspots** | DBSCAN over all alert locations (40 m radius, 30-day half-life) suggests permanent fixes. |
-| **GenAI copilot** | Gemini, with Groq as fallback, through OpenAI-compatible tool calling over live twin data. It cites alert IDs and never invents numbers. If no LLM is reachable, a rule-based offline answer takes over. |
+| **GenAI copilot** | Gemini free tier, then Groq free tier, through OpenAI-compatible tool calling over live twin data. Without internet, a free local Qwen2.5-1.5B on CPU answers from the same live facts. A rule-based answer is the last fallback. It cites alert IDs and never invents numbers. |
 | **What-if simulator** | Annual ₹, kWh and CO₂ savings from raising the AC setpoint, cutting after-hours load, an LED retrofit, rooftop solar, fixing leaks, or changing pickup frequency, computed over a full year of data. |
 | **Reports** | Weekly sustainability report: numbers from the twin, narrative from GenAI, exported as PDF. |
 | **Accountability** | Work orders with deadlines per kind (water 4 h, waste 6 h, energy 24 h), an overdue state, a proof-photo close, and green-score grades A–D per block on a leaderboard. |
+
+## ₹0 running cost
+
+Every part of EcoTwin is free to run:
+
+| Part | Free option used |
+|---|---|
+| Vision | YOLO11n and CLIP ViT-B/32 run locally on CPU. No API. |
+| ML | scikit-learn models trained locally on open data |
+| GenAI | Gemini API free tier, then Groq free tier (no billing on either), then local Qwen2.5-1.5B-Instruct (Apache-2.0) on CPU, then a rule-based answer |
+| Map | MapLibre GL (open source) with satellite imagery tiles |
+| Hosting | Hugging Face Spaces free CPU tier |
 
 ## Data (all free and open, credited)
 

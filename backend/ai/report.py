@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 
 import config as C
+from ai import local_llm
 from ai.llm import LLMUnavailable, chat
 
 PROMPT = """Write the weekly sustainability report for DSU Harohalli campus facilities from this JSON.
@@ -35,6 +36,18 @@ def build(twin, reports_desk):
         provider, msg = chat([{"role": "user", "content": PROMPT + json.dumps(data, default=str)}], max_tokens=8000)
         narrative = msg.get("content") or ""
     except LLMUnavailable:
+        provider, narrative = "offline", ""
+        if local_llm.available():
+            try:
+                slim = {k: data[k] for k in ("week_ending", "totals", "green_score", "alerts", "student_reports")}
+                slim["buildings"] = {b["name"]: {k: b[k] for k in ("kwh", "vs_expected_pct", "night_kwh")} for b in hist["buildings"].values()}
+                slim["interventions_if_applied"] = {k: sim_plan[k] for k in ("inr_saved_year", "co2_tonnes_saved_year", "kwh_saved_year", "breakdown_kwh")}
+                narrative = local_llm.generate("You write concise facilities reports from JSON. Use only the numbers given.",
+                                               PROMPT + json.dumps(slim, default=str), max_new_tokens=700)
+                provider = "local-qwen"
+            except Exception:
+                narrative = ""
+    if not narrative:
         provider = "offline"
         worst = sorted(hist["buildings"].values(), key=lambda b: b["vs_expected_pct"], reverse=True)[:3]
         narrative = "## Executive summary\n" + (

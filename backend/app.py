@@ -17,7 +17,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 import config as C
-from ai import copilot, report
+from ai import copilot, local_llm, report
 from twin.engine import Twin
 from twin.hotspots import hotspots
 from vision.detector import Vision
@@ -241,7 +241,8 @@ def about():
             "assumptions": {"grid_kg_co2_per_kwh": C.GRID_KG_CO2_PER_KWH, "tariff_inr_per_kwh": C.TARIFF_INR_PER_KWH,
                             "water_inr_per_kl": C.WATER_INR_PER_KL, "ac_saving_per_deg": C.AC_SAVING_PER_DEG,
                             "solar_kwh_per_kwp_day": C.SOLAR_KWH_PER_KWP_DAY, "deadlines_h": C.DEADLINE_H},
-            "llm": {"gemini": bool(C.GEMINI_API_KEY), "openai": bool(C.OPENAI_API_KEY), "groq": bool(C.GROQ_API_KEY)}}
+            "llm": {"gemini (free tier)": bool(C.GEMINI_API_KEY), "groq (free tier)": bool(C.GROQ_API_KEY),
+                    "local qwen (CPU, offline)": local_llm.available()}}
 
 
 app.mount("/uploads", StaticFiles(directory=C.UPLOADS), name="uploads")
