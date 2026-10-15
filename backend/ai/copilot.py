@@ -85,9 +85,13 @@ def fallback_answer(handlers, question):
 
 def ask(twin, question, history=None):
     handlers = make_handlers(twin)
-    messages = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": question}]
-    try:
-        provider, text, log = run_tools(messages, TOOLS, handlers)
-        return {"answer": text, "provider": provider, "tools": log}
-    except LLMUnavailable as e:
-        return {"answer": fallback_answer(handlers, question), "provider": "offline", "tools": [], "error": str(e)}
+    base = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": question}]
+    errors = []
+    # Each attempt runs the whole tool conversation on one provider: Gemini first, then Groq.
+    for first in (None, "groq"):
+        try:
+            provider, text, log = run_tools(list(base), TOOLS, handlers, provider=first)
+            return {"answer": text, "provider": provider, "tools": log}
+        except LLMUnavailable as e:
+            errors.append(str(e))
+    return {"answer": fallback_answer(handlers, question), "provider": "offline", "tools": [], "error": " | ".join(errors)}

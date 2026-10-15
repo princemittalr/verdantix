@@ -5,6 +5,7 @@ covers both. Providers are tried in order; if every provider fails the caller
 falls back to a deterministic answer built from the same tool results.
 """
 import json
+import time
 
 import httpx
 
@@ -20,10 +21,12 @@ class LLMUnavailable(Exception):
     pass
 
 
-def chat(messages, tools=None, temperature=0.3, max_tokens=1200):
-    """Return (provider, assistant_message_dict)."""
+def chat(messages, tools=None, temperature=0.3, max_tokens=4000, only=None):
+    """Return (provider, assistant_message_dict). `only` pins one provider mid-conversation."""
     errors = []
     for name, url, key, model in PROVIDERS:
+        if only and name != only:
+            continue
         if not key():
             errors.append(f"{name}: no key")
             continue
@@ -32,7 +35,11 @@ def chat(messages, tools=None, temperature=0.3, max_tokens=1200):
             body["tools"] = tools
             body["tool_choice"] = "auto"
         try:
-            r = httpx.post(url, json=body, headers={"Authorization": f"Bearer {key()}"}, timeout=40)
+            for attempt in range(2):  # one quick retry when the provider is overloaded
+                r = httpx.post(url, json=body, headers={"Authorization": f"Bearer {key()}"}, timeout=40)
+                if r.status_code not in (429, 503) or attempt:
+                    break
+                time.sleep(1.5)
             r.raise_for_status()
             return name, r.json()["choices"][0]["message"]
         except Exception as e:  # try the next provider
@@ -41,16 +48,18 @@ def chat(messages, tools=None, temperature=0.3, max_tokens=1200):
     raise LLMUnavailable("; ".join(errors))
 
 
-def run_tools(messages, tools, handlers, max_rounds=5):
+def run_tools(messages, tools, handlers, max_rounds=5, provider=None):
     """Tool-calling loop. Returns (provider, final_text, tool_log)."""
     log = []
-    provider = None
     for _ in range(max_rounds):
-        provider, msg = chat(messages, tools)
+        provider, msg = chat(messages, tools, only=provider)
         calls = msg.get("tool_calls") or []
         if not calls:
             return provider, msg.get("content") or "", log
-        messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+        # Send the assistant turn back unchanged: Gemini 3 requires its thought signatures.
+        echo = {k: v for k, v in msg.items() if k in ("role", "content", "tool_calls", "extra_content")}
+        echo["role"], echo["content"] = "assistant", msg.get("content") or ""
+        messages.append(echo)
         for call in calls:
             fn = call["function"]["name"]
             try:
@@ -64,5 +73,5 @@ def run_tools(messages, tools, handlers, max_rounds=5):
             log.append({"tool": fn, "args": args})
             messages.append({"role": "tool", "tool_call_id": call["id"], "name": fn,
                              "content": json.dumps(result, default=str)[:12000]})
-    provider, msg = chat(messages)
+    provider, msg = chat(messages, only=provider)
     return provider, msg.get("content") or "", log

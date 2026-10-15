@@ -32,7 +32,7 @@ def build(twin, reports_desk):
         "interventions_if_applied": sim_plan,
     }
     try:
-        provider, msg = chat([{"role": "user", "content": PROMPT + json.dumps(data, default=str)}], max_tokens=1500)
+        provider, msg = chat([{"role": "user", "content": PROMPT + json.dumps(data, default=str)}], max_tokens=8000)
         narrative = msg.get("content") or ""
     except LLMUnavailable:
         provider = "offline"
@@ -42,7 +42,7 @@ def build(twin, reports_desk):
             f"and {data['totals']['water_kl']} kL of water this week. Green score: {data['green_score']}/100.\n\n## Top issues\n"
             + "\n".join(f"- {b['name']}: {b['vs_expected_pct']:+}% vs expected, {b['night_kwh']} kWh at night" for b in worst)
             + f"\n\n## Recommended actions\n- Raise AC setpoint 1 degC, cut after-hours load 50%, LED retrofit, fix leaks: "
-              f"Rs {sim_plan['inr_saved_year']:,}/year, {sim_plan['co2_t_saved_year']} t CO2/year.")
+              f"Rs {sim_plan['inr_saved_year']:,}/year, {sim_plan['co2_tonnes_saved_year']} t CO2/year.")
     return {"data": data, "narrative": narrative, "provider": provider, "generated": datetime.now().isoformat(timespec="minutes")}
 
 
@@ -71,17 +71,32 @@ def to_pdf(report):
     bt = Table(rows)
     bt.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dff1ea"))]))
     story += [bt, Spacer(1, 12)]
+    small = ss["BodyText"].clone("cell", fontSize=8, leading=10)
+    rows = []
+
+    def flush_table():
+        if rows:
+            t = Table([[Paragraph(c, small) for c in r] for r in rows], repeatRows=1)
+            t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dff1ea"))]))
+            story.extend([t, Spacer(1, 8)])
+            rows.clear()
+
     for line in report["narrative"].splitlines():
         line = line.strip()
-        if not line or set(line) <= {"|", "-", " ", ":"}:
-            continue
         safe = line.replace("&", "&amp;").replace("<", "&lt;").replace("**", "")
+        if line.startswith("|"):
+            if not set(line) <= {"|", "-", " ", ":"}:  # skip the markdown separator row
+                rows.append([c.strip() for c in safe.strip("|").split("|")])
+            continue
+        flush_table()
+        if not line:
+            continue
         if line.startswith("#"):
             story.append(Paragraph(safe.lstrip("# "), ss["Heading2"]))
-        elif line.startswith("|"):
-            story.append(Paragraph(" - ".join(c.strip() for c in safe.strip("|").split("|")), ss["Normal"]))
         else:
-            story.append(Paragraph(safe.lstrip("-* "), ss["Normal"]))
+            story.append(Paragraph(("• " if line[:2] in ("- ", "* ") else "") + safe.lstrip("-* "), ss["Normal"]))
+    flush_table()
     story += [Spacer(1, 12), Paragraph(
         "Data: open datasets (BDG2, CU-BEMS, BattLeDIM, UCI Occupancy) mapped onto DSU buildings; "
         f"grid factor {C.GRID_KG_CO2_PER_KWH} kg CO2/kWh (CEA), tariff Rs {C.TARIFF_INR_PER_KWH}/kWh (assumed). "

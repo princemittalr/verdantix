@@ -1,4 +1,4 @@
-"""Shared settings and the impact constants every rupee / CO2 figure comes from."""
+﻿"""Shared settings and the impact constants every rupee / CO2 figure comes from."""
 import os
 from pathlib import Path
 
@@ -13,7 +13,7 @@ WEIGHTS = ROOT / "backend" / "weights"
 def _load_env():
     env = ROOT / ".env"
     if env.exists():
-        for line in env.read_text(encoding="utf-8").splitlines():
+        for line in env.read_text(encoding="utf-8-sig").splitlines():
             if "=" in line and not line.lstrip().startswith("#"):
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip())
@@ -23,8 +23,8 @@ _load_env()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Impact constants (editable; shown on the "Assumptions" panel).
 GRID_KG_CO2_PER_KWH = 0.71   # CEA CO2 Baseline Database, all-India grid (approx.)

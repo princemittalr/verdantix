@@ -272,7 +272,7 @@ class Twin:
             excess = max(w["mnf_excess_lph"], w["scenario_lph"])
             kl_day = excess * 24 / 1000
             self._raise("water", "main-leak", zone, f"Suspected pipe leak near {self.campus.buildings[zone]['name']}",
-                        f"Night-time minimum inflow is {excess:.0f} L/h above the 14-night baseline; biggest pressure drop at this zone.",
+                        f"Night-time minimum inflow is {excess:.0f} L/h above the 7-night baseline; biggest pressure drop at this zone.",
                         "crit", "demo-scenario" if w["scenario_lph"] else "sensor-ml",
                         kl_day * C.WATER_INR_PER_KL, kl_day * C.WATER_KG_CO2_PER_KL,
                         {"leak_score": round(w["leak_score"], 2), "excess_lph": round(excess)}, sim)
@@ -501,7 +501,7 @@ class Twin:
         result = {
             "kwh_saved_year": round(kwh_saved),
             "inr_saved_year": round(kwh_saved * C.TARIFF_INR_PER_KWH + leak_kl * C.WATER_INR_PER_KL),
-            "co2_t_saved_year": round((kwh_saved * C.GRID_KG_CO2_PER_KWH + leak_kl * C.WATER_KG_CO2_PER_KL) / 1000, 1),
+            "co2_tonnes_saved_year": round((kwh_saved * C.GRID_KG_CO2_PER_KWH + leak_kl * C.WATER_KG_CO2_PER_KL) / 1000, 1),
             "water_kl_saved_year": round(leak_kl),
             "breakdown_kwh": {k: round(v) for k, v in saved.items()},
             "baseline_kwh_year": round(total_kwh),

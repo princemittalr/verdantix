@@ -384,7 +384,7 @@ async function runSim() {
   const r = await post("/api/simulate", p);
   $("#simOut").innerHTML = `<div class="big">
       <div class="stat"><span>Saved per year</span><b>₹${fmt(r.inr_saved_year)}</b></div>
-      <div class="stat"><span>CO₂ avoided</span><b>${r.co2_t_saved_year} t</b></div>
+      <div class="stat"><span>CO₂ avoided</span><b>${r.co2_tonnes_saved_year} t</b></div>
       <div class="stat"><span>Energy saved</span><b>${fmt(r.kwh_saved_year)} kWh</b></div>
       <div class="stat"><span>Of campus energy</span><b>${r.pct_energy_saved}%</b></div></div>
     <div class="list">${Object.entries(r.breakdown_kwh).map(([k, v]) => `<div class="m"><span style="width:110px">${k.replace("_", " ")}</span>
