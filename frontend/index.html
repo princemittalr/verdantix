@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoTwin DSU</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">◈</span><div><b>EcoTwin DSU</b><small>Harohalli campus digital twin</small></div></div>
+  <div class="clock">
+    <span id="simTime" class="mono">--</span>
+    <div class="seg" id="speedSeg">
+      <button data-speed="1">1×</button><button data-speed="60" class="on">60×</button><button data-speed="600">600×</button>
+    </div>
+    <button class="ghost" id="jumpNight" title="Jump to 2 AM tonight">Jump to 2 AM</button>
+    <button class="ghost" id="jumpMorning">Jump to 9 AM</button>
+  </div>
+  <button class="ghost" id="aboutBtn">Data &amp; models</button>
+</header>
+
+<section class="kpis" id="kpis">
+  <div class="kpi"><span>Green score</span><b id="kScore">--</b><em id="kGrade"></em></div>
+  <div class="kpi"><span>Power now</span><b id="kPower">--</b><em>kW</em></div>
+  <div class="kpi"><span>Energy today</span><b id="kEnergy">--</b><em>kWh</em></div>
+  <div class="kpi"><span>Cost today</span><b id="kCost">--</b><em>₹</em></div>
+  <div class="kpi"><span>CO₂ today</span><b id="kCo2">--</b><em>kg</em></div>
+  <div class="kpi"><span>Water today</span><b id="kWater">--</b><em>kL</em></div>
+  <div class="kpi alert"><span>Open alerts</span><b id="kAlerts">--</b><em id="kWaste"></em></div>
+</section>
+
+<main class="layout">
+  <section class="mapwrap">
+    <div id="map"></div>
+    <div class="maplegend">
+      <span><i class="dot ok"></i>Normal</span><span><i class="dot warn"></i>Attention</span><span><i class="dot crit"></i>Critical</span>
+      <label><input type="checkbox" id="showRoute"> Pickup route</label>
+      <label><input type="checkbox" id="showHot"> Hotspots</label>
+    </div>
+    <div class="board" id="board"></div>
+    <div class="demo">
+      <span>Demo scenarios</span>
+      <button data-scn="leak">Pipe leak</button>
+      <button data-scn="ac_night">AC left on</button>
+      <button data-scn="bin_overflow">Bin overflow</button>
+      <button data-scn="clear" class="ghost">Clear</button>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <nav class="tabs" id="tabs">
+      <button data-tab="alerts" class="on">Alerts</button>
+      <button data-tab="building">Building</button>
+      <button data-tab="vision">Vision</button>
+      <button data-tab="copilot">Copilot</button>
+      <button data-tab="whatif">What-if</button>
+      <button data-tab="report">Report</button>
+      <button data-tab="students">Students</button>
+    </nav>
+
+    <div class="tab on" id="tab-alerts">
+      <div class="sub">Detect → Verify → Assign → Prove</div>
+      <div id="alertList" class="list"></div>
+      <h3>Work orders</h3>
+      <div id="orderList" class="list"></div>
+    </div>
+
+    <div class="tab" id="tab-building">
+      <select id="bldSelect"></select>
+      <div id="bldInfo" class="stats"></div>
+      <canvas id="bldChart" height="180"></canvas>
+      <h3>Rooms: SOE A Block <small>(AC · lights · occupancy)</small></h3>
+      <div id="roomGrid" class="rooms"></div>
+      <h3>Bins <small>(fill · forecast)</small></h3>
+      <div id="binList" class="list"></div>
+    </div>
+
+    <div class="tab" id="tab-vision">
+      <div class="row">
+        <select id="vSource"><option value="webcam">Webcam</option><option value="video">Demo video file</option><option value="image">Single image</option></select>
+        <input type="file" id="vFile" accept="video/*,image/*" hidden>
+      </div>
+      <div class="row">
+        <label>Linked room <select id="vRoom"><option value="">none</option></select></label>
+        <label>Linked bin <select id="vBin"><option value="">none</option></select></label>
+      </div>
+      <div class="viewer"><video id="vVideo" autoplay muted playsinline loop></video><img id="vImg" alt=""><canvas id="vCanvas"></canvas></div>
+      <div class="row"><button id="vStart">Start live analysis</button><button id="vOnce" class="ghost">Analyse one frame</button></div>
+      <div id="vOut" class="vout"></div>
+    </div>
+
+    <div class="tab" id="tab-copilot">
+      <div id="chat" class="chat"></div>
+      <div class="chips">
+        <button>What should facilities fix first today?</button>
+        <button>Why is any building red right now?</button>
+        <button>How much can we save with a 1°C AC raise and LED retrofit?</button>
+        <button>Plan today's bin pickup route.</button>
+      </div>
+      <form id="askForm" class="ask"><input id="askInput" placeholder="Ask about energy, water, waste…" autocomplete="off"><button>Ask</button></form>
+    </div>
+
+    <div class="tab" id="tab-whatif">
+      <div class="sub">Annual impact, computed over a full year of replayed meter data.</div>
+      <label class="slider">Raise AC setpoint <b id="vAc">0 °C</b><input type="range" id="sAc" min="0" max="3" step="0.5" value="0"></label>
+      <label class="slider">Cut after-hours load <b id="vAh">0%</b><input type="range" id="sAh" min="0" max="100" step="10" value="0"></label>
+      <label class="slider">Rooftop solar <b id="vSol">0 kWp</b><input type="range" id="sSol" min="0" max="500" step="25" value="0"></label>
+      <label class="slider">Bin pickups per day <b id="vPk">2</b><input type="range" id="sPk" min="1" max="4" step="1" value="2"></label>
+      <label class="check"><input type="checkbox" id="sLed"> LED retrofit (−50% lighting)</label>
+      <label class="check"><input type="checkbox" id="sLeak"> Fix detected leaks</label>
+      <div id="simOut" class="simout"></div>
+    </div>
+
+    <div class="tab" id="tab-report">
+      <div class="row"><button id="genReport">Generate weekly report</button><a id="pdfLink" class="btnlink" href="/api/report/weekly.pdf" target="_blank" hidden>Download PDF</a></div>
+      <canvas id="weekChart" height="150"></canvas>
+      <div id="reportOut" class="md"></div>
+    </div>
+
+    <div class="tab" id="tab-students">
+      <div class="sub">Students are human sensors: snap a problem, it lands on the twin.</div>
+      <form id="repForm" class="repform">
+        <input type="file" id="repFile" accept="image/*" capture="environment" required>
+        <label>Where? <select id="repZone"></select></label>
+        <small>or click the map to drop a pin</small>
+        <input id="repNote" placeholder="What's wrong? (optional)">
+        <button>Submit report</button>
+      </form>
+      <div id="repResult"></div>
+      <h3>Recent reports</h3>
+      <div id="repList" class="list"></div>
+    </div>
+  </aside>
+</main>
+
+<dialog id="about"><div id="aboutBody"></div><form method="dialog"><button>Close</button></form></dialog>
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>

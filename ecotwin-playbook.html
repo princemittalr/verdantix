@@ -1,0 +1,270 @@
+<title>EcoTwin DSU Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: single reading column, wide tables scroll in place; a sticky section index on wide screens */
+:root{
+  --bg:#f5f7f6; --surface:#ffffff; --fg:#17231f; --muted:#56655f; --line:#d6dfdb;
+  --accent:#0f7a5c; --accent-soft:#dff1ea; --warn:#a55a00; --warn-soft:#fbeedc; --crit:#b42318; --crit-soft:#fde7e5;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --body:"Source Sans 3",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1513; --surface:#15201c; --fg:#e4ece8; --muted:#9aaba4; --line:#2a3833;
+  --accent:#4cc79e; --accent-soft:#173a2e; --warn:#f0a948; --warn-soft:#3a2a12; --crit:#ff7a6e; --crit-soft:#3d1a17; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1513; --surface:#15201c; --fg:#e4ece8; --muted:#9aaba4; --line:#2a3833;
+  --accent:#4cc79e; --accent-soft:#173a2e; --warn:#f0a948; --warn-soft:#3a2a12; --crit:#ff7a6e; --crit-soft:#3d1a17; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:17px/1.6 var(--body);padding-inline:16px;padding-block:32px 80px}
+.wrap{max-width:860px;margin:0 auto;display:grid;gap:48px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2rem,5vw,3rem);font-weight:700}
+h2{font-size:1.6rem;font-weight:700;padding-top:8px;border-top:2px solid var(--fg)}
+h3{font-size:1.15rem;font-weight:500;margin-top:8px}
+section{display:grid;gap:16px;min-width:0}
+p,li{max-width:68ch;margin:0}
+ul,ol{margin:0;padding-left:1.25em;display:grid;gap:6px}
+a{color:var(--accent)}
+code,.mono{font-family:var(--mono);font-size:.86em}
+.eyebrow{font:600 .75rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:1.15rem;color:var(--muted)}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:600 .78rem/1 var(--mono);padding:6px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.alert{border:1px solid var(--crit);background:var(--crit-soft);border-radius:10px;padding:18px 20px;display:grid;gap:10px}
+.alert strong{color:var(--crit)}
+.note{border-left:3px solid var(--warn);background:var(--warn-soft);padding:12px 16px;border-radius:0 8px 8px 0}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.93rem;min-width:620px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font:600 .72rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);white-space:nowrap}
+.bar{height:8px;border-radius:4px;background:var(--accent)}
+.crit-grid{display:grid;gap:12px}
+.crit-row{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:12px 20px;align-items:start;padding:14px 0;border-bottom:1px solid var(--line)}
+.crit-row:last-child{border-bottom:0}
+.crit-name{display:grid;gap:6px}
+.crit-name b{font-family:var(--display);font-weight:700;font-size:1.05rem}
+.crit-name .num{font:600 1.4rem/1 var(--mono);color:var(--accent)}
+@media (max-width:560px){.crit-row{grid-template-columns:1fr}}
+pre{margin:0;padding:14px 16px;font:13px/1.55 var(--mono);overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:grid;gap:8px;align-content:start;min-width:0}
+.card h3{margin:0}
+.tag{font:600 .7rem/1 var(--mono);padding:4px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase}
+.must{background:var(--accent-soft);color:var(--accent)}
+.wow{background:var(--warn-soft);color:var(--warn)}
+.check li{list-style:none;position:relative;padding-left:1.6em}
+.check li::before{content:"";position:absolute;left:0;top:.35em;width:.9em;height:.9em;border:2px solid var(--accent);border-radius:3px}
+.check{padding-left:0}
+footer{color:var(--muted);font-size:.9rem;border-top:1px solid var(--line);padding-top:16px}
+</style>
+
+<div class="wrap">
+
+<header style="display:grid;gap:14px">
+  <span class="eyebrow">CodeClash 2.0 · Problem Statement 2 · AI-Powered Sustainable Campus</span>
+  <h1>EcoTwin DSU: the team battle plan</h1>
+  <p class="lede">A live digital twin of DSU's Harohalli campus. It shows waste, energy, water and resource problems as they happen, uses computer vision and sensor anomaly detection to find them, and uses a GenAI copilot to say what to do about each one, with the rupee and CO₂ impact.</p>
+  <div class="meta">
+    <span class="chip">15–16 Oct 2026</span><span class="chip">SOE A Block, LH 1 &amp; 2</span><span class="chip">Submit by 4:30 PM, Day 2</span><span class="chip">Team of 1–4</span>
+  </div>
+</header>
+
+<section>
+  <div class="alert">
+    <strong>Read this first: the code has to be written at the event.</strong>
+    <p>The rules say code must be written during the event and that pre-built projects and templates are prohibited. Writing the app tonight would put a disqualification at risk, and a judge can check your GitHub commit timestamps. So tonight is for preparation only: accounts, API keys, downloaded datasets and model weights, installed libraries, the architecture, the slide outline and roles. All the coding starts at 10:00 AM on 15 Oct.</p>
+    <p>Open-source tools, APIs and pretrained models are explicitly allowed, so downloading YOLO weights and public datasets tonight is fine. Make your GitHub repo during the event. Give its first commit a timestamp after the opening ceremony and commit often, so the history shows the work happened there.</p>
+  </div>
+</section>
+
+<section id="facts">
+  <h2>Every detail from the event page</h2>
+  <div class="scroll"><table>
+    <tr><th>Item</th><th>Detail</th><th>What it means for you</th></tr>
+    <tr><td>Check-in</td><td>15 Oct, 8:30 AM. All members must arrive together.</td><td>Attendance is marked per team. If one member is missing, the whole team is marked absent. Bring college ID or a government ID.</td></tr>
+    <tr><td>Hours</td><td>10:00–4:30 both days. You can keep working remotely overnight.</td><td>You get about 13 hours of venue time plus the night. Plan for roughly 20 hours of work.</td></tr>
+    <tr><td>Day 2 morning</td><td>Workshops on CV, digital twin platforms and GenAI APIs, plus a mid-hack mentor check-in.</td><td>Have a working demo ready for the mentor check-in. Treat it as a practice run in front of a judge.</td></tr>
+    <tr><td>Deadline</td><td>4:30 PM on Day 2. Late entries are not evaluated.</td><td>Freeze features at 2:30 PM. Submit by 4:00 PM.</td></tr>
+    <tr><td>Submission</td><td>PPT, GitHub link, live deployment link if you have one, all files on Google Drive. Form: <a href="https://forms.gle/2bv21GPiTDRH3eHt5">forms.gle/2bv21GPiTDRH3eHt5</a></td><td>Deploy it. A live link is optional, but it signals a finished product. Record a 2-minute backup video too, even though they don't ask for one.</td></tr>
+    <tr><td>Judging</td><td>Demo, judges' Q&amp;A, then results on Day 2 afternoon.</td><td>The demo has to work on venue Wi-Fi. Prepare an offline fallback (see the GenAI section).</td></tr>
+    <tr><td>Conduct</td><td>Plagiarism means copying without attribution. Judges' decisions are final.</td><td>Credit every dataset and model in the README and on one slide.</td></tr>
+    <tr><td>Prizes</td><td>₹15,000 / ₹10,000 / ₹5,000, plus a Best Innovation award.</td><td>The innovation features below also target the separate Best Innovation award.</td></tr>
+    <tr><td>Contacts</td><td>Tejas HR <span class="mono">+91 63646 80456</span> · Dhruv Kumar <span class="mono">+91 70047 57821</span></td><td>Call them tonight if you're not sure your registration (closed 13 Oct) went through.</td></tr>
+  </table></div>
+  <p class="note">Theme: "AI × Digital Twin × Sustainability". Every problem statement must combine <b>all three</b> of computer vision, a digital twin and GenAI. A team that does one well and skips another loses marks, so all three are visible in the first 30 seconds of the demo plan below.</p>
+</section>
+
+<section id="judging">
+  <h2>Judging criteria, and how we score in each</h2>
+  <div class="crit-grid">
+    <div class="crit-row"><div class="crit-name"><span class="num">30%</span><b>Technical implementation</b><div class="bar" style="width:100%"></div></div>
+      <p>A real pipeline, not a mockup. YOLO runs on live video and images, anomaly models run on streaming sensor data, the twin updates over WebSocket, and the LLM uses tool calls on real twin state. Show model metrics (mAP, precision on leak events) on one slide.</p></div>
+    <div class="crit-row"><div class="crit-name"><span class="num">25%</span><b>Innovation &amp; creativity</b><div class="bar" style="width:83%"></div></div>
+      <p>A what-if simulator ("shut AC in B-Block at 5 PM: −312 kWh/week, −₹2.5k, −0.22 t CO₂"), a copilot that writes facility work orders, sensor and camera fusion that cuts false alarms, and a block-vs-block green score leaderboard.</p></div>
+    <div class="crit-row"><div class="crit-name"><span class="num">20%</span><b>Practicality &amp; impact</b><div class="bar" style="width:66%"></div></div>
+      <p>Report savings in ₹ and kg CO₂ using Indian grid factors and Bengaluru weather. Show a deployment path: ESP32 sensors over MQTT and existing CCTV feeds, with a rough cost per block. Say plainly that it runs on public datasets mapped onto DSU's layout.</p></div>
+    <div class="crit-row"><div class="crit-name"><span class="num">15%</span><b>Presentation &amp; demo</b><div class="bar" style="width:50%"></div></div>
+      <p>A rehearsed 3-minute story with a live webcam moment on stage. Keep a recorded backup and an offline LLM fallback.</p></div>
+    <div class="crit-row"><div class="crit-name"><span class="num">10%</span><b>Teamwork</b><div class="bar" style="width:33%"></div></div>
+      <p>Every member presents one part and answers questions on it. Show a commit history from all four people.</p></div>
+  </div>
+</section>
+
+<section id="product">
+  <h2>What we build</h2>
+  <p>One web app with four screens, and every screen feeds the twin.</p>
+  <div class="two">
+    <div class="card"><span class="tag must">must</span><h3>1 · Campus twin map</h3><p>A 3D campus with extruded buildings (DSU footprints traced from OpenStreetMap or satellite imagery). Each block is colored by live status. Click a block to drill into its floors and rooms, with live energy, water, occupancy and waste readings.</p></div>
+    <div class="card"><span class="tag must">must</span><h3>2 · Vision feed</h3><p>YOLO on CCTV-style clips and a live webcam. It detects overflowing bins and litter, and counts people. Fused with power data, it flags lights or AC running in an empty room. Every detection pins an alert to its location on the map.</p></div>
+    <div class="card"><span class="tag must">must</span><h3>3 · Sensor anomalies</h3><p>Energy, water and occupancy streams are replayed in real time. Isolation Forest plus a forecast-residual model flag overnight base load, leaks (night flow and pressure drop) and HVAC drift, each with a severity and a cost per hour.</p></div>
+    <div class="card"><span class="tag must">must</span><h3>4 · GenAI copilot &amp; reports</h3><p>A chat agent with tools: <code>get_block_status</code>, <code>list_alerts</code>, <code>simulate</code>, <code>create_work_order</code>. One-click weekly sustainability report as a PDF with charts, ₹ and CO₂ figures, and actions ranked by payback.</p></div>
+    <div class="card"><span class="tag wow">wow</span><h3>What-if simulator</h3><p>Sliders for AC setpoint, a lights-off schedule, fixing a leak, and bin pickup frequency. The twin recomputes kWh, litres, ₹ and CO₂ instantly. This is the main Best Innovation feature.</p></div>
+    <div class="card"><span class="tag wow">wow</span><h3>Green score leaderboard</h3><p>Each block gets a 0–100 score per day, and blocks are ranked against each other to get students involved. Easy to build and judges remember it.</p></div>
+  </div>
+  <p class="note">Cut list if you fall behind, in this order: leaderboard, 3D (fall back to a 2D SVG campus map), the PDF (fall back to a markdown report on screen). Never cut the live CV moment or the copilot.</p>
+</section>
+
+<section id="cleancity">
+  <h2>What we carry over from Clean City</h2>
+  <p>The team's earlier Clean City app already proved a full report-to-fix loop: Snap → Verify → Route → Prove. EcoTwin brings that loop onto campus and closes it around the digital twin: <b>Detect → Verify → Assign → Prove</b>. We reuse ideas and lessons only. All code is written fresh at the event, as the rules require.</p>
+  <div class="scroll"><table>
+    <tr><th>Clean City idea</th><th>How EcoTwin uses it</th><th>Criterion it lifts</th></tr>
+    <tr><td>CLIP zero-shot classification</td><td>Covers problems we have no training data for: water on floors or a dripping tap, lights or a projector on in an empty room, AC running with windows open. YOLO handles bins; CLIP handles everything else and double-checks YOLO.</td><td>Technical, Innovation</td></tr>
+    <tr><td>Citizen photo reports</td><td>Students and staff act as human sensors. A phone-friendly web page lets them snap a photo, which is geofenced to the DSU campus polygons and dropped onto the twin.</td><td>Practicality, Innovation</td></tr>
+    <tr><td>Ordered verification checks</td><td>A lighter version: inside a campus polygon, perceptual-hash duplicate check, CLIP issue score, and a repeat-report check with CLIP similarity near open reports.</td><td>Technical</td></tr>
+    <tr><td>After-cleaning proof photo</td><td>A work order closes only when the "fixed" photo passes CLIP (bin no longer overflowing, floor dry, lights off). The twin turns that zone green again.</td><td>Practicality, Demo</td></tr>
+    <tr><td>DBSCAN hotspots, 30-day half-life</td><td>Recurring problem hotspots across campus (bins, washrooms, labs), combining camera, sensor and student reports.</td><td>Technical</td></tr>
+    <tr><td>Next-dumping estimate</td><td>Bin fill-rate forecast that predicts when each bin will overflow and orders the pickup route.</td><td>Practicality</td></tr>
+    <tr><td>Deadlines, escalation, ward scorecard</td><td>Work-order deadlines (for example 4 hours for a leak), overdue escalation, and the A–D green score per block.</td><td>Practicality, Innovation</td></tr>
+    <tr><td>Honest-claims discipline</td><td>Say what is real, what is simulated and what is planned. Judges reward this in Q&amp;A.</td><td>Presentation</td></tr>
+  </table></div>
+  <p class="note">Left out on purpose: the AI-image detector (unreliable in testing), ONNX conversion, email OTP login, and PWA packaging. They cost hours and score little here. Use a simple Student / Facilities role switch in the demo.</p>
+</section>
+
+<section id="data">
+  <h2>Free datasets, mapped onto DSU</h2>
+  <p>There's no DSU data, so the approach is to map real public data onto a model of DSU's blocks. Say this openly on a slide: "Real open datasets, mapped onto DSU's layout, ready to plug in real sensors." Judges trust a team that is honest about its data.</p>
+  <div class="scroll"><table>
+    <tr><th>Need</th><th>Dataset</th><th>What's in it</th><th>Used for</th></tr>
+    <tr><td>Building energy, water</td><td><a href="https://github.com/buds-lab/building-data-genome-project-2">Building Data Genome 2</a> (GitHub / Kaggle)</td><td>3,053 meters from 1,636 non-residential buildings, hourly, 2016–17: electricity, chilled water, hot water, irrigation. Metadata includes education buildings.</td><td>Filter to <code>primaryspaceusage == Education</code> and assign one building to each DSU block, as the block-level meters</td></tr>
+    <tr><td>Room-level AC, lights, plugs</td><td><a href="https://www.nature.com/articles/s41597-020-00582-3">CU-BEMS</a> (Chulalongkorn)</td><td>1-minute AC, lighting and plug kW per zone across 33 zones, with temperature, humidity and lux. Tropical climate like Bengaluru's.</td><td>Room drill-down, HVAC drift, lights on in daylight</td></tr>
+    <tr><td>Occupancy</td><td><a href="https://archive.ics.uci.edu/dataset/357/occupancy+detection">UCI Occupancy Detection</a></td><td>About 20k rows of light, CO₂, temperature and humidity, with occupied/empty labels taken from a camera</td><td>Train an occupancy model. Empty room with power on = energy waste</td></tr>
+    <tr><td>Water leaks</td><td><a href="https://github.com/KIOS-Research/BattLeDIM">BattLeDIM 2020</a> (L-Town)</td><td>A year of 5-minute flow and pressure data from 33 pressure sensors, with labelled leak times</td><td>Leak detector with labelled ground truth, so you can quote real precision and recall</td></tr>
+    <tr><td>Waste and bins (CV)</td><td><a href="http://tacodataset.org">TACO</a> + Roboflow <a href="https://universe.roboflow.com/charuka-edirisinghe/garbage_fill_level">garbage_fill_level</a> (Empty / Half / Overflow, 622 images, CC BY 4.0)</td><td>Litter segmentation in COCO format, plus labelled bin fill levels</td><td>Fine-tune YOLO (nano) for bin fill level and litter</td></tr>
+    <tr><td>People / lights (CV)</td><td>COCO-pretrained YOLO weights</td><td>The <code>person</code> class works out of the box</td><td>Live webcam head count on stage, no training needed</td></tr>
+    <tr><td>Weather</td><td><a href="https://open-meteo.com">Open-Meteo</a> (free, no key)</td><td>Hourly temperature and humidity for Harohalli</td><td>Weather-normalised energy baseline</td></tr>
+    <tr><td>Carbon, cost</td><td>CEA CO₂ Baseline Database; BESCOM tariff schedule</td><td>India grid emission factor (around 0.7 kg CO₂/kWh; use the latest version) and the ₹/kWh rate for educational institutions</td><td>Every alert and report in ₹ and kg CO₂</td></tr>
+    <tr><td>Campus layout</td><td>OpenStreetMap / Google satellite tracing</td><td>Building footprints for the Harohalli campus</td><td>Twin geometry. Trace by hand in <a href="https://geojson.io">geojson.io</a> if OSM is sparse</td></tr>
+  </table></div>
+  <p class="note">Time shift: replay 2016–2019 data with today's timestamps so the dashboard looks live. Keep a "simulation clock" control to fast-forward to a night-time leak during the demo.</p>
+</section>
+
+<section id="stack">
+  <h2>Architecture and stack</h2>
+<pre>
+ [CCTV clips / webcam] --YOLO--> vision events ─┐
+ [Replayed meters: BDG2, CU-BEMS, UCI, BattLeDIM]├─> FastAPI "twin engine" ──WebSocket──> React dashboard
+ [Open-Meteo weather]  ------------------------->│   · twin state (blocks/rooms)          · 3D map (deck.gl / three.js)
+ (future: ESP32 → MQTT → same ingest API)        │   · anomaly models (IsoForest, residual)· alerts, charts, simulator
+                                                 │   · simulator (what-if)                 · copilot chat + PDF report
+                                                 └─> LLM agent (tool calls on twin state) ─> recommendations, work orders
+</pre>
+  <div class="scroll"><table>
+    <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+    <tr><td>Backend</td><td>Python 3.11, FastAPI, WebSockets, pandas, SQLite</td><td>Fast to write, one language with the ML code</td></tr>
+    <tr><td>Vision</td><td>Ultralytics YOLO11n (or v8n), OpenCV</td><td>A nano model fine-tunes on a laptop GPU or free Colab T4 in about 20 minutes</td></tr>
+    <tr><td>Anomaly</td><td>scikit-learn IsolationForest, rolling z-score, LightGBM forecast residuals</td><td>Explainable, trains in seconds, gives real metrics on BattLeDIM</td></tr>
+    <tr><td>GenAI</td><td>Gemini Flash (free key from Google AI Studio) or Groq Llama, with Ollama <code>llama3.2:3b</code> as an offline fallback</td><td>Free, supports tool calling, and the demo survives a Wi-Fi outage</td></tr>
+    <tr><td>Frontend</td><td>React + Vite, deck.gl or react-three-fiber, Recharts, Tailwind</td><td>3D twin and charts with little code</td></tr>
+    <tr><td>Reports</td><td>LLM-written markdown, rendered to PDF with ReportLab or WeasyPrint, charts from matplotlib</td><td>A file judges can download and keep</td></tr>
+    <tr><td>Deploy</td><td>Frontend on Vercel; backend on Hugging Face Spaces (Docker) or Render free tier</td><td>Gives you the live link for the submission</td></tr>
+  </table></div>
+</section>
+
+<section id="tonight">
+  <h2>Tonight's prep (allowed: no project code)</h2>
+  <ul class="check">
+    <li>Confirm registration with the organisers. Pack IDs, laptops, chargers, an extension board and a phone hotspot.</li>
+    <li>Create free accounts and keys: Google AI Studio (Gemini), Groq, Roboflow, Hugging Face, Vercel, GitHub. Keep the keys in a password manager, never in the repo.</li>
+    <li>Install the toolchain on every laptop (commands below). Install Ollama and pull the fallback model.</li>
+    <li>Download every dataset in the table above to a shared drive. BDG2 and CU-BEMS are a few hundred MB each.</li>
+    <li>Agree on roles, the API contract (JSON shape of a block, an alert and a sensor reading), and the slide outline on paper.</li>
+    <li>Sleep. Day 1 runs into the night.</li>
+  </ul>
+<pre>
+# Python environment (tools only, not project code)
+python -m venv venv
+venv\Scripts\activate
+pip install fastapi "uvicorn[standard]" pandas numpy scikit-learn lightgbm ultralytics opencv-python
+pip install google-genai groq ollama reportlab matplotlib python-multipart
+
+# Pretrained weights and offline LLM
+yolo predict model=yolo11n.pt source=https://ultralytics.com/images/bus.jpg
+ollama pull llama3.2:3b
+
+# Frontend toolchain (Node 20+)
+npm create vite@latest   # run this at the event, not tonight
+</pre>
+</section>
+
+<section id="timeline">
+  <h2>Build timeline</h2>
+  <div class="scroll"><table>
+    <tr><th>When</th><th>Goal</th><th>Done means</th></tr>
+    <tr><td class="num">D1 10:00–11:00</td><td>Repo, skeletons, API contract, DSU GeoJSON</td><td>Backend and frontend both run, empty map renders</td></tr>
+    <tr><td class="num">D1 11:00–14:00</td><td>Data loaders and replay engine; YOLO fine-tune starts on Colab; 3D map with blocks</td><td>Live numbers stream to the map over WebSocket</td></tr>
+    <tr><td class="num">D1 14:00–16:30</td><td>Anomaly detectors; vision service; alert panel</td><td>A leak and an overflowing bin both show up as pins on the map</td></tr>
+    <tr><td class="num">D1 night</td><td>Copilot with tool calls; what-if simulator; ₹ and CO₂ math</td><td>"Why is B-Block red?" gets a correct, data-backed answer</td></tr>
+    <tr><td class="num">D2 10:00–12:00</td><td>PDF report, leaderboard, polish; mentor check-in</td><td>Full demo runs end to end</td></tr>
+    <tr><td class="num">D2 12:00–14:30</td><td>Deploy, README, slides, record backup video</td><td>Live link works on a phone</td></tr>
+    <tr><td class="num">D2 14:30–16:00</td><td>Feature freeze; rehearse twice; submit form</td><td>Submitted before 4:00 PM</td></tr>
+  </table></div>
+</section>
+
+<section id="roles">
+  <h2>Roles for four people</h2>
+  <div class="two">
+    <div class="card"><h3>Vision lead</h3><p>Dataset prep, YOLO fine-tune, inference service, the live webcam demo, mAP slide.</p></div>
+    <div class="card"><h3>Data &amp; ML lead</h3><p>Dataset mapping, replay engine, anomaly models, ₹ and CO₂ math, simulator.</p></div>
+    <div class="card"><h3>GenAI &amp; backend lead</h3><p>FastAPI, WebSocket, agent tools, prompts, PDF report, offline fallback.</p></div>
+    <div class="card"><h3>Frontend &amp; pitch lead</h3><p>3D twin, dashboard, deployment, slides, demo script, backup video.</p></div>
+  </div>
+</section>
+
+<section id="demo">
+  <h2>The 3-minute demo script</h2>
+  <ol>
+    <li><b>0:00 The problem.</b> One slide: what a campus like DSU wastes in energy, water and waste each year, in ₹.</li>
+    <li><b>0:20 The twin.</b> Open the 3D DSU map. "Every block, live." Click into a block and then a room.</li>
+    <li><b>0:45 Vision, live.</b> Point the webcam at a bin with paper overflowing, or at an empty seat with the lights on. A pin appears on the twin.</li>
+    <li><b>1:15 Sensors.</b> Fast-forward the clock to 2 AM. A water leak alert fires: "Night flow 340 L/h above baseline, ₹ per day, likely pipe segment".</li>
+    <li><b>1:45 Copilot.</b> Ask: "What should facilities fix first this week?" It answers with a ranked list from real twin data, then creates a work order.</li>
+    <li><b>2:15 What-if.</b> Drag the AC schedule slider. Savings in ₹ and CO₂ update live.</li>
+    <li><b>2:35 Report and close.</b> Download the PDF. Show the ESP32 → MQTT path for a real rollout at DSU. Each member names their part.</li>
+  </ol>
+  <h3>Questions judges will probably ask</h3>
+  <ul>
+    <li><b>"Where's the DSU data?"</b> Public datasets mapped onto DSU's layout; the ingest API takes real meters as-is. Show the MQTT endpoint.</li>
+    <li><b>"How accurate is it?"</b> Leak precision and recall on BattLeDIM labels; YOLO mAP@50 on the held-out split.</li>
+    <li><b>"Does the LLM hallucinate?"</b> It only answers from tool results and cites the alert IDs. Numbers come from code, not from the model.</li>
+    <li><b>"What does a real rollout cost?"</b> Per-block sensor bill of materials, existing CCTV reused, payback in months.</li>
+  </ul>
+</section>
+
+<section id="submit">
+  <h2>Submission checklist</h2>
+  <ul class="check">
+    <li>PPT of about 10 slides: problem, solution, architecture, datasets with credits, model metrics, demo screenshots, impact in ₹ and CO₂, rollout plan, team.</li>
+    <li>Public GitHub repo with README (setup, architecture diagram, dataset credits and licenses, screenshots).</li>
+    <li>Live deployment link, tested on a phone.</li>
+    <li>Google Drive folder: code zip, PPT, backup demo video, a sample PDF report.</li>
+    <li>Form submitted at <a href="https://forms.gle/2bv21GPiTDRH3eHt5">forms.gle/2bv21GPiTDRH3eHt5</a> before 4:00 PM.</li>
+  </ul>
+</section>
+
+<footer>Sources: the <a href="https://www.dsu.edu.in/code-clash/">CodeClash 2.0 event page</a>, and the dataset pages linked above. Check each dataset's license before you submit.</footer>
+</div>
