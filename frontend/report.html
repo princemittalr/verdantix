@@ -4,72 +4,103 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e9ebf1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Verdantix">
 <title>Report a problem · Verdantix</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <style>
   :root { --bg: #e9ebf1; --surface: #ffffff; --raised: #f4f5f9; --line: #e4e6ee; --fg: #161a2c; --muted: #6e7389;
-          --accent: #161a2c; --ink: #ffffff; --warn: #e8962b; --crit: #e5484d; --ok: #1fa971; color-scheme: light; }
+          --accent: #3e5bf2; --warn: #e8962b; --crit: #e5484d; --ok: #1fa971; color-scheme: light;
+          --shadow: 0 1px 2px rgba(22,26,44,.06), 0 14px 36px -8px rgba(22,26,44,.14); }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Geist", system-ui, sans-serif; }
-  main { max-width: 480px; margin: 0 auto; padding: 20px 16px calc(28px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Geist", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 480px; margin: 0 auto; padding: 18px 16px calc(28px + env(safe-area-inset-bottom)); display: grid; gap: 16px; }
   header { display: flex; align-items: center; gap: 10px; }
-  .logo { width: 30px; height: 30px; border-radius: 10px; background: var(--fg); color: #8fe3c0; display: grid; place-items: center; font-size: 16px; }
-  h1 { font: 800 24px/1.15 "Geist", system-ui, sans-serif; margin: 6px 0 0; }
+  header b { font-weight: 800; letter-spacing: -.02em; }
+  .logo { width: 32px; height: 32px; border-radius: 10px; background: var(--fg); display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 7px; align-content: end; }
+  .logo i { display: block; background: #fff; border-radius: 2px; } .logo i:nth-child(1) { height: 9px; } .logo i:nth-child(2) { height: 15px; background: #8fe3c0; } .logo i:nth-child(3) { height: 5px; grid-column: 1 / -1; opacity: .6; }
+  #install { margin-left: auto; }
+  h1 { font: 800 26px/1.15 "Geist", system-ui, sans-serif; letter-spacing: -.02em; margin: 4px 0 4px; }
   .sub { color: var(--muted); font-size: 14px; margin: 0; }
-  .shot { position: relative; display: grid; place-items: center; min-height: 210px; border: 2px dashed #cfd3e0; border-radius: 20px; background: var(--surface); box-shadow: 0 14px 36px -8px rgba(22,26,44,.14); cursor: pointer; overflow: hidden; text-align: center; padding: 16px; }
-  .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .shot b { font: 700 18px "Geist", system-ui, sans-serif; display: block; }
-  .shot input { display: none; }
-  .loc { display: flex; gap: 10px; align-items: center; background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .card { background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); padding: 16px; display: grid; gap: 12px; }
+  .q { font-weight: 700; font-size: 15px; }
+  .cats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cats label { position: relative; cursor: pointer; }
+  .cats input { position: absolute; opacity: 0; }
+  .cats span { display: grid; gap: 2px; padding: 12px; border-radius: 16px; background: var(--raised); border: 2px solid transparent; font-weight: 650; font-size: 15px; }
+  .cats small { font-weight: 500; font-size: 12px; color: var(--muted); }
+  .cats input:checked + span { border-color: var(--fg); background: var(--surface); box-shadow: var(--shadow); }
+  .cats input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .photo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .photo label { display: grid; place-items: center; text-align: center; padding: 14px 8px; border-radius: 16px; background: var(--raised); font-weight: 600; font-size: 14px; cursor: pointer; }
+  .photo input { display: none; }
+  .preview { position: relative; border-radius: 16px; overflow: hidden; }
+  .preview img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
+  .preview button { position: absolute; top: 8px; right: 8px; padding: 6px 12px; font-size: 13px; background: rgba(22,26,44,.75); }
+  .hint { font-size: 12.5px; color: var(--muted); }
+  .loc { display: flex; gap: 10px; align-items: center; font-size: 14px; }
   .loc .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
-  .loc.ok .dot { background: var(--ok); }
-  .loc.bad .dot { background: var(--crit); }
+  .loc.ok .dot { background: var(--ok); } .loc.bad .dot { background: var(--crit); }
   .loc button { margin-left: auto; }
-  label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
-  input, select { font: inherit; color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 12px; width: 100%; }
-  button { font: 600 16px "Geist", system-ui, sans-serif; background: var(--accent); color: var(--ink); border: 0; border-radius: 10px; padding: 14px; cursor: pointer; }
-  button.small { padding: 6px 10px; font-size: 13px; background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  label.f { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--fg); background: var(--raised); border: 1px solid transparent; border-radius: 12px; padding: 12px; width: 100%; }
+  button { font: 650 16px "Geist", system-ui, sans-serif; background: var(--fg); color: #fff; border: 0; border-radius: 14px; padding: 15px; cursor: pointer; }
+  button.small { padding: 7px 12px; font-size: 13px; background: var(--raised); color: var(--fg); border-radius: 999px; }
   button:disabled { opacity: .55; }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .result { border-radius: 16px; padding: 14px; background: var(--surface); border-left: 4px solid var(--ok); box-shadow: 0 14px 36px -8px rgba(22,26,44,.14); }
+  .result { border-radius: 18px; padding: 16px; background: var(--surface); border-left: 4px solid var(--ok); box-shadow: var(--shadow); }
   .result.no { border-left-color: var(--warn); }
-  .result b { font: 700 18px "Geist", system-ui, sans-serif; display: block; margin-bottom: 4px; }
-  .steps { display: flex; gap: 6px; flex-wrap: wrap; font: 500 11px "Geist", system-ui, sans-serif; color: var(--muted); }
-  .steps span { background: var(--surface); border: 1px solid var(--line); padding: 3px 7px; border-radius: 6px; }
-  .steps span.pass { color: #0e7149; border-color: #bfe5cf; background: #e3f6ee; }
-  .steps span.fail { color: var(--crit); border-color: #f6c4c5; background: #fdeaea; }
-  a { color: #3e5bf2; }
+  .result b { font: 700 18px "Geist", system-ui, sans-serif; display: block; margin-bottom: 6px; }
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .steps span { background: var(--raised); padding: 3px 9px; border-radius: 999px; }
+  .steps span.pass { color: #0e7149; background: #e3f6ee; } .steps span.fail { color: #b3261e; background: #fdeaea; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <header><span class="logo">◈</span><div><b>Verdantix</b><p class="sub">DSU Harohalli campus twin</p></div></header>
+  <header><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span><div><b>Verdantix</b><p class="sub">DSU campus problem reporter</p></div>
+    <button class="small" id="install" hidden>Install app</button></header>
   <div>
-    <h1>Spot waste, a leak or lights left on?</h1>
-    <p class="sub">Snap it. AI checks it's real and on campus, then facilities get it on the live twin.</p>
+    <h1>Report a problem on campus</h1>
+    <p class="sub">Facilities see it on the live campus twin within seconds.</p>
   </div>
 
-  <form id="f">
-    <div style="display:grid;gap:14px">
-      <label class="shot" id="shot">
-        <input type="file" id="file" accept="image/*" capture="environment" required>
-        <div id="shotTxt"><b>Take a photo</b><span class="sub">Overflowing bin, litter, leaking tap, empty room with lights on…</span></div>
-        <img id="prev" alt="" hidden>
-      </label>
-
-      <div class="loc" id="loc"><span class="dot"></span><span id="locTxt">Finding your location…</span><button type="button" class="small" id="locBtn">Retry</button></div>
-      <label id="zoneWrap" hidden>Or pick the place
-        <select id="zone"><option value="">Choose a building or spot</option></select>
-      </label>
-
-      <label><span>What's wrong? <small>(optional)</small></span><input id="note" maxlength="140" placeholder="e.g. tap running in 2nd floor washroom"></label>
-      <label><span>Your name <small>(optional, earns green credits)</small></span><input id="name" maxlength="40" autocomplete="name"></label>
-      <button id="go">Send report</button>
+  <form id="f" class="card" novalidate>
+    <div class="q">What did you find?</div>
+    <div class="cats" role="radiogroup" aria-label="Problem type">
+      <label><input type="radio" name="cat" value="waste"><span>Garbage<small>Overflowing bin, litter</small></span></label>
+      <label><input type="radio" name="cat" value="water"><span>Water<small>Leak, running tap</small></span></label>
+      <label><input type="radio" name="cat" value="energy"><span>Energy<small>Lights or AC left on</small></span></label>
+      <label><input type="radio" name="cat" value="other"><span>Something else<small>Broken, unsafe, wasteful</small></span></label>
     </div>
+
+    <div class="q">Add a photo <span class="hint">(recommended: AI verifies it instantly)</span></div>
+    <div class="photo" id="photoBtns">
+      <label>Take photo<input type="file" id="cam" accept="image/*" capture="environment"></label>
+      <label>Choose from gallery<input type="file" id="gal" accept="image/*"></label>
+    </div>
+    <div class="preview" id="preview" hidden><img id="prev" alt="Your photo"><button type="button" id="rmPhoto">Remove</button></div>
+    <p class="hint" id="nophoto">No photo? You can still send it. It goes to facilities as unverified and is confirmed when others report the same thing nearby.</p>
+
+    <div class="q">Where is it?</div>
+    <div class="loc" id="loc"><span class="dot"></span><span id="locTxt">Finding your location…</span><button type="button" class="small" id="locBtn">Retry</button></div>
+    <label class="f" id="zoneWrap">Or pick the place
+      <select id="zone"><option value="">Use my GPS location</option></select>
+    </label>
+
+    <label class="f">What's wrong? (optional)<input id="note" maxlength="140" placeholder="e.g. tap running in 2nd floor washroom"></label>
+    <label class="f">Your name (optional, earns green credits)<input id="name" maxlength="40" autocomplete="name"></label>
+    <button id="go">Send report</button>
   </form>
   <div id="out"></div>
-  <p class="sub">Checks, in order: on campus · not a duplicate photo · AI sees a real problem · not already reported nearby. <a href="/">Open the live twin</a></p>
+  <p class="sub"><a href="/">Open the live campus twin</a></p>
 </main>
 <script src="config.js"></script>
 <script>
@@ -78,19 +109,31 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 let pos = null, campus = null, blob = null;
 
+// Keep what was typed: on low-memory phones the browser can reload the page after the camera closes.
+const DRAFT = "vx-draft";
+function saveDraft() {
+  try { sessionStorage.setItem(DRAFT, JSON.stringify({ cat: $("input[name=cat]:checked")?.value || "", note: $("#note").value, zone: $("#zone").value })); } catch {}
+}
+function loadDraft() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT) || "{}");
+    if (d.cat) { const r = $(`input[name=cat][value=${d.cat}]`); if (r) r.checked = true; }
+    if (d.note) $("#note").value = d.note;
+    return d;
+  } catch { return {}; }
+}
 try { $("#name").value = localStorage.getItem("vx-name") || ""; } catch {}
+const draft = loadDraft();
+$("#f").addEventListener("change", saveDraft);
+$("#note").addEventListener("input", saveDraft);
 
 function setLoc(state, text) { $("#loc").className = `loc ${state}`; $("#locTxt").textContent = text; }
 function locate() {
-  if (!navigator.geolocation || !window.isSecureContext) {
-    setLoc("bad", "GPS needs the https link. Pick the place below.");
-    $("#zoneWrap").hidden = false;
-    return;
-  }
+  if (!navigator.geolocation || !window.isSecureContext) { setLoc("bad", "GPS needs the https link. Pick the place below."); return; }
   setLoc("", "Finding your location…");
   navigator.geolocation.getCurrentPosition(
-    (p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; setLoc("ok", `Located · ±${Math.round(pos.acc)} m`); },
-    (e) => { setLoc("bad", e.code === 1 ? "Location blocked. Pick the place below." : "Couldn't get GPS. Pick the place below."); $("#zoneWrap").hidden = false; },
+    (p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; setLoc("ok", `Location found, accurate to ${Math.round(pos.acc)} m`); },
+    (e) => setLoc("bad", e.code === 1 ? "Location is blocked. Pick the place below." : "Couldn't get GPS. Pick the place below."),
     { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
 }
 $("#locBtn").onclick = locate;
@@ -98,39 +141,48 @@ locate();
 
 fetch(API + "/api/campus").then((r) => r.json()).then((g) => {
   campus = g;
-  $("#zone").innerHTML += g.features.filter((f) => f.properties.type !== "camera" && f.properties.type !== "water_meter")
+  $("#zone").innerHTML += g.features.filter((f) => !["camera", "water_meter"].includes(f.properties.type))
     .map((f) => `<option value="${f.properties.id}">${esc(f.properties.name)}</option>`).join("");
-});
+  if (draft.zone) $("#zone").value = draft.zone;
+}).catch(() => {});
 
-// Shrink phone photos (often 4-12 MB) to ~1280 px before upload; campus Wi-Fi is slow.
+// Shrink photos to ~1280 px on the phone before upload: less data, less memory on both ends.
 async function shrink(file) {
-  const img = await createImageBitmap(file).catch(() => null);
-  if (!img) return file;
-  const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+  let src;
+  try { src = await createImageBitmap(file, { resizeWidth: 1280, resizeQuality: "medium" }); }
+  catch { try { src = await createImageBitmap(file); } catch { return file; } }
+  const k = Math.min(1, 1280 / Math.max(src.width, src.height));
   const c = document.createElement("canvas");
-  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-  return new Promise((res) => c.toBlob((b) => res(b || file), "image/jpeg", 0.85));
+  c.width = Math.round(src.width * k); c.height = Math.round(src.height * k);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  src.close?.();
+  return new Promise((res) => c.toBlob((b) => res(b || file), "image/jpeg", 0.82));
 }
-$("#file").onchange = async (e) => {
+async function onPhoto(e) {
   const f = e.target.files[0];
+  e.target.value = "";
   if (!f) return;
+  $("#go").disabled = true; $("#go").textContent = "Preparing photo…";
   blob = await shrink(f);
   $("#prev").src = URL.createObjectURL(blob);
-  $("#prev").hidden = false;
-  $("#shotTxt").hidden = true;
-};
+  $("#preview").hidden = false; $("#photoBtns").hidden = true; $("#nophoto").hidden = true;
+  $("#go").disabled = false; $("#go").textContent = "Send report";
+}
+$("#cam").onchange = onPhoto;
+$("#gal").onchange = onPhoto;
+$("#rmPhoto").onclick = () => { blob = null; $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false; };
 
-const CHECKS = ["location", "duplicate", "issue", "repeat"];
-const LABEL = { location: "on campus", duplicate: "new photo", issue: "AI sees issue", repeat: "not a repeat" };
-function steps(failed) {
-  const at = failed ? CHECKS.indexOf(failed) : CHECKS.length;
-  return `<div class="steps">${CHECKS.map((c, i) => `<span class="${i < at ? "pass" : i === at ? "fail" : ""}">${i < at ? "✓" : i === at ? "✗" : "·"} ${LABEL[c]}</span>`).join("")}</div>`;
+const LABEL = { location: "On campus", duplicate: "New photo", issue: "Problem seen", repeat: "Not a repeat" };
+function steps(failed, withPhoto) {
+  const checks = withPhoto ? ["location", "duplicate", "issue", "repeat"] : ["location", "repeat"];
+  const at = failed ? checks.indexOf(failed) : checks.length;
+  return `<div class="steps">${checks.map((c, i) => `<span class="${i < at ? "pass" : i === at ? "fail" : ""}">${LABEL[c]}</span>`).join("")}</div>`;
 }
 
 $("#f").onsubmit = async (e) => {
   e.preventDefault();
-  if (!blob) return alert("Take a photo first.");
+  const cat = $("input[name=cat]:checked")?.value || "";
+  if (!cat && !blob) return alert("Pick what you found, or add a photo.");
   let loc = pos;
   const z = $("#zone").value;
   if (z && campus) {
@@ -138,29 +190,41 @@ $("#f").onsubmit = async (e) => {
     const c = f.geometry.type === "Point" ? f.geometry.coordinates : f.properties.center;
     loc = { lng: c[0], lat: c[1], acc: 0 };
   }
-  if (!loc) { $("#zoneWrap").hidden = false; return alert("We need a location: allow GPS or pick the place."); }
+  if (!loc) return alert("We need a location: allow GPS or pick the place.");
   const name = $("#name").value.trim();
   try { localStorage.setItem("vx-name", name); } catch {}
   const fd = new FormData();
-  fd.append("file", blob, "report.jpg");
+  if (blob) fd.append("file", blob, "report.jpg");
+  fd.append("category", cat);
   fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("accuracy_m", loc.acc || 0);
   fd.append("note", $("#note").value.trim()); fd.append("reporter", name);
-  $("#go").disabled = true; $("#go").textContent = "Checking with AI…";
+  $("#go").disabled = true; $("#go").textContent = blob ? "Checking the photo with AI…" : "Sending…";
   try {
     const r = await fetch(API + "/api/reports", { method: "POST", body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
+    const credits = d.credits != null ? ` You have ${d.credits} green credits.` : "";
     $("#out").innerHTML = d.ok
-      ? `<div class="result"><b>Thanks! Report ${d.report.id} is on the twin.</b>${steps(null)}
-         <p class="sub">AI read it as <b style="display:inline;font-size:inherit">${esc(d.report.clip.issue)}</b> (${Math.round(d.report.clip.issue_score * 100)}%). Facilities alert ${d.alert} is open.${d.credits != null ? ` You have ${d.credits} green credits.` : ""}</p></div>`
-      : `<div class="result no"><b>${d.check === "repeat" ? "Already reported. Your confirmation was added." : "Not added yet"}</b>${steps(d.check)}<p class="sub">${esc(d.message)}</p></div>`;
-    if (d.ok) { $("#f").reset(); blob = null; $("#prev").hidden = true; $("#shotTxt").hidden = false; $("#name").value = name; }
+      ? `<div class="result"><b>${d.verified ? "Verified and sent" : "Sent to facilities"}: ${d.report.id}</b>${steps(null, !!blob)}
+         <p class="sub">${d.verified ? `AI confirmed ${esc(d.report.kind)} in your photo.` : "It's marked unverified until someone else confirms it or staff check it."} Alert ${d.alert} is on the twin.${credits}</p></div>`
+      : `<div class="result no"><b>${d.check === "repeat" ? "Already reported, thanks" : "Not sent yet"}</b>${steps(d.check, !!blob)}<p class="sub">${esc(d.message)}</p></div>`;
+    if (d.ok) {
+      $("#f").reset(); $("#name").value = name; blob = null;
+      $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false;
+      try { sessionStorage.removeItem(DRAFT); } catch {}
+    }
   } catch (err) {
-    $("#out").innerHTML = `<div class="result no"><b>Couldn't send</b><p class="sub">${esc(err.message)}</p></div>`;
+    $("#out").innerHTML = `<div class="result no"><b>Couldn't send</b><p class="sub">${esc(err.message)}. Check your connection and send again; your details are kept.</p></div>`;
   }
   $("#go").disabled = false; $("#go").textContent = "Send report";
   $("#out").scrollIntoView({ behavior: "smooth" });
 };
+
+// Installable app (PWA): Android shows "Install app"; also the base for the Play Store APK.
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+let installEvt = null;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $("#install").hidden = false; });
+$("#install").onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $("#install").hidden = true; };
 </script>
 </body>
 </html>

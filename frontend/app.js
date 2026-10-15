@@ -578,6 +578,17 @@ async function analyseOnce() {
   if (!f) return toast("No frame yet. Start the webcam or load a video/image.");
   const fd = new FormData();
   fd.append("file", f.blob, "frame.jpg");
+  const cam = $("#vCam").value;
+  if (cam) {   // CCTV mode: the server decides and raises/clears alerts at the camera's location
+    const r = await api(`/api/cctv/${cam}`, { method: "POST", body: fd });
+    drawBoxes({ objects: r.objects, size: r.size }, f.w, f.h);
+    const name = $("#vCam").selectedOptions[0].textContent;
+    $("#vOut").innerHTML = `<div class="cctvres ${r.action.startsWith("alert") ? "hit" : ""}"><b>${esc(name)}</b>:
+        ${r.score >= 0.6 ? `sees <b>${esc(r.issue)}</b> (${Math.round(r.score * 100)}% sure)` : "nothing wrong in view"} · ${r.people} people</div>
+      <div>${r.top.map((t) => `<span class="tag">${esc(t.label)}</span>`).join("")}</div>
+      ${r.action !== "none" ? `<div><b>${r.action.startsWith("alert") ? "Reported automatically as " + r.action.split(" ")[1] : "Problem gone: closed " + r.action.split(" ")[1]}</b></div>` : ""}`;
+    return;
+  }
   fd.append("room", $("#vRoom").value);
   fd.append("bin", $("#vBin").value);
   const r = await api("/api/vision/analyze", { method: "POST", body: fd });
@@ -718,6 +729,8 @@ $("#genReport").onclick = async () => {
 $("#repForm").onsubmit = async (e) => {
   e.preventDefault();
   const f = $("#repFile").files[0];
+  const cat = $("#repCat").value;
+  if (!f && !cat) return toast("Pick what you found, or add a photo.");
   let loc = pin;
   if ($("#repZone").value) {
     const feat = campus.features.find((x) => x.properties.id === $("#repZone").value);
@@ -726,13 +739,16 @@ $("#repForm").onsubmit = async (e) => {
   }
   if (!loc) return toast("Pick a place from the list or click the map.");
   const fd = new FormData();
-  fd.append("file", f); fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("note", $("#repNote").value);
+  if (f) fd.append("file", f);
+  fd.append("category", cat); fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("note", $("#repNote").value);
   fd.append("reporter", $("#repName").value.trim());
-  $("#repResult").innerHTML = "<div class='sub'>Checking location, duplicates and photo…</div>";
+  $("#repResult").innerHTML = `<div class='sub'>${f ? "Checking location, duplicates and photo…" : "Sending…"}</div>`;
   const r = await api("/api/reports", { method: "POST", body: fd });
   $("#repResult").innerHTML = r.ok
-    ? `<div class="card ok"><div class="t">Accepted as ${r.report.id} → alert ${r.alert}${r.credits != null ? ` · ${r.credits} green credits` : ""}</div><div class="d">CLIP: ${r.report.clip.issue} (${Math.round(r.report.clip.issue_score * 100)}%)</div></div>`
-    : `<div class="card warn"><div class="t">Not accepted (${r.check} check)</div><div class="d">${r.message}</div></div>`;
+    ? `<div class="card ok"><div class="t">${r.verified ? "Verified" : "Sent, unverified"}: ${r.report.id}, alert ${r.alert}</div>
+       <div class="d">${r.report.clip ? `AI sees ${esc(r.report.clip.issue)} (${Math.round(r.report.clip.issue_score * 100)}%)` : "No photo: confirmed when others report the same thing nearby"}${r.credits != null ? `. ${r.credits} green credits` : ""}</div></div>`
+    : `<div class="card warn"><div class="t">${r.check === "repeat" ? "Already reported" : "Not sent"}</div><div class="d">${esc(r.message)}</div></div>`;
+  if (r.ok) { $("#repForm").reset(); }
   loadReports();
 };
 async function loadReports() {
@@ -741,7 +757,7 @@ async function loadReports() {
     : `<div class="sub">Add your name to a report to earn credits (10 per accepted report, 2 per confirmation).</div>`;
   const rs = await api("/api/reports");
   $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card clickable ${r.kind === "water" ? "crit" : "warn"}" data-fly="${r.lng},${r.lat}"><div class="t">${r.id} · ${r.kind} · ${esc(r.zone)} <small class="d">by ${esc(r.reporter || "anonymous")}</small></div>
-    <img src="${media(r.image)}" alt="" style="max-width:100%;border-radius:6px"><div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span>${r.alert}</span></div></div>`).join("")
+    ${r.image ? `<img src="${media(r.image)}" alt="" style="max-width:100%">` : ""}${r.verified === false ? '<div class="m"><span class="pill src-student-unverified">unverified</span></div>' : ""}<div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span>${r.alert}</span></div></div>`).join("")
     : `<div class="sub">No student reports yet.</div>`;
 }
 
@@ -856,6 +872,9 @@ async function boot() {
   $("#walkBld").innerHTML = $("#bldSelect").innerHTML;
   $("#vRoom").innerHTML += Object.keys(st.rooms).map((r) => `<option value="${r}">${r.split("/")[1]}</option>`).join("");
   $("#vBin").innerHTML += Object.keys(st.bins).map((b) => `<option value="${b}">${b}</option>`).join("");
+  $("#vCam").innerHTML += campus.features.filter((f) => f.properties.type === "camera")
+    .map((f) => `<option value="${f.properties.id}">${esc(f.properties.name)}</option>`).join("");
+  $("#vCam").onchange = () => { $("#vLinks").hidden = !!$("#vCam").value; };
   $("#repZone").innerHTML = `<option value="">(click map)</option>` + campus.features.map((f) => `<option value="${f.properties.id}">${f.properties.name}</option>`).join("");
   render(st);
   selectBuilding(blds[0][0]);

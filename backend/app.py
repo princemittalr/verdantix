@@ -35,16 +35,25 @@ C.UPLOADS.mkdir(parents=True, exist_ok=True)
 last_report = {}
 
 
+MAX_SIDE = 1600   # phone photos are 12-50 MP; decoding them at full size can exhaust a small server's memory
+
+
 def _img(data: bytes):
     try:
-        return Image.open(io.BytesIO(data)).convert("RGB")
+        im = Image.open(io.BytesIO(data))
+        im.draft("RGB", (MAX_SIDE, MAX_SIDE))   # JPEG: decode at reduced size directly (cheap on memory)
+        im = im.convert("RGB")
+        im.thumbnail((MAX_SIDE, MAX_SIDE))
+        return im
     except Exception:
         raise HTTPException(400, "That file isn't an image we can read. Use a JPG or PNG.")
 
 
-def _save(data: bytes, prefix):
+def _save(img, prefix):
     name = f"{prefix}-{uuid.uuid4().hex[:8]}.jpg"
-    _img(data).save(C.UPLOADS / name, quality=85)
+    small = img.copy()
+    small.thumbnail((1024, 1024))
+    small.save(C.UPLOADS / name, quality=82)
     return f"/uploads/{name}"
 
 
@@ -130,9 +139,10 @@ async def proof(oid: str, file: UploadFile = File(...)):
     data = await file.read()
     o = twin.orders[oid]
     a = twin.alerts[o.alert_id]
-    url = _save(data, "proof")
+    img = _img(data)
+    url = _save(img, "proof")
     try:
-        check = await asyncio.to_thread(vision.verify_fixed, _img(data), a.kind)
+        check = await asyncio.to_thread(vision.verify_fixed, img, a.kind)
     except VisionUnavailable as e:
         raise HTTPException(503, str(e))
     check["image"] = url
@@ -167,14 +177,80 @@ async def analyze(file: UploadFile = File(...), camera: str = Form(""), room: st
     return result
 
 
+# ---------- CCTV: cameras report problems on their own ----------
+CCTV_RAISE, CCTV_CLEAR, CCTV_CLEAN_FRAMES = 0.6, 0.35, 3
+cctv_state: dict[str, dict] = {}   # camera -> {clean: n, last: result, at: time}
+CCTV_TEXT = {"waste": "garbage or overflowing bin", "water": "water leak or running tap", "energy": "lights or AC on in an empty room"}
+
+
+@app.get("/api/cctv")
+def cctv_list():
+    cams = []
+    for cid in twin.campus.of_type("camera"):
+        p = twin.campus.features[cid]["properties"]
+        st = cctv_state.get(cid, {})
+        cams.append({"id": cid, "name": p["name"], "lng": twin.campus.location(cid)[0], "lat": twin.campus.location(cid)[1],
+                     "last": st.get("last"), "seen_s": round(time.time() - st["at"]) if st.get("at") else None})
+    return cams
+
+
+@app.post("/api/cctv/{cam}")
+async def cctv_frame(cam: str, file: UploadFile = File(...)):
+    """One frame from a CCTV camera (dashboard webcam, video file or scripts/cctv_agent.py). Problems become alerts at the camera's location."""
+    if cam not in twin.campus.of_type("camera"):
+        raise HTTPException(404, f"Unknown camera {cam}. Cameras: {', '.join(twin.campus.of_type('camera'))}")
+    img = _img(await file.read())
+    try:
+        result, _ = await asyncio.to_thread(vision.analyze, img)
+    except VisionUnavailable as e:
+        raise HTTPException(503, str(e))
+    clip = result["clip"]
+    name = twin.campus.features[cam]["properties"]["name"]
+    lng, lat = twin.campus.location(cam)
+    st = cctv_state.setdefault(cam, {"clean": 0})
+    st.update(at=time.time(), last={"issue": clip["issue"], "score": clip["issue_score"], "people": result["people"]})
+    action = "none"
+    issue, score = clip["issue"], clip["issue_score"]
+    if result.get("bin") and result["bin"]["fill"] >= 100:
+        issue, score = "waste", max(score, result["bin"]["conf"])
+    if score >= CCTV_RAISE:
+        st["clean"] = 0
+        url = _save(img, f"cctv-{cam}")
+        sim = twin.clock.now()
+        with twin.lock:
+            a = twin._raise(issue, f"cctv-{issue}", cam, f"{name} sees {CCTV_TEXT[issue]}",
+                            f"Detected automatically by camera AI ({round(score * 100)}% sure): "
+                            + ", ".join(t["label"] for t in clip["top"][:2]) + ".",
+                            "crit" if score >= 0.8 or issue == "water" else "warn", "camera",
+                            {"water": 300, "waste": 150, "energy": 200}[issue], 2.0,
+                            {"image": url, "clip": clip["top"], "score": score, "camera": cam}, sim)
+            a.lng, a.lat = lng, lat
+            twin._snap = None
+        action = f"alert {a.id}"
+    elif score < CCTV_CLEAR:
+        st["clean"] += 1
+        if st["clean"] >= CCTV_CLEAN_FRAMES:   # problem gone for a few frames in a row: close it
+            with twin.lock:
+                for a in twin.alerts.values():
+                    if a.asset == cam and a.rule.startswith("cctv-") and a.status == "open":
+                        a.status, action = "self-cleared", f"cleared {a.id}"
+    return {"camera": cam, "issue": issue, "score": round(score, 3), "people": result["people"], "action": action,
+            "top": clip["top"], "objects": result["objects"], "size": result["size"]}
+
+
 # ---------- student reports ----------
 @app.post("/api/reports")
-async def submit_report(file: UploadFile = File(...), lat: float = Form(...), lng: float = Form(...), note: str = Form(""),
-                        reporter: str = Form(""), accuracy_m: float = Form(0)):
-    data = await file.read()
-    img = _img(data)
-    url = _save(data, "report")
-    return await asyncio.to_thread(desk.submit, img, lng, lat, note, url, reporter[:40].strip(), accuracy_m)
+async def submit_report(lat: float = Form(...), lng: float = Form(...), note: str = Form(""), reporter: str = Form(""),
+                        accuracy_m: float = Form(0), category: str = Form(""), file: UploadFile | None = File(None)):
+    img = url = None
+    if file is not None and file.filename:
+        data = await file.read()
+        if data:
+            img = _img(data)
+            del data
+            url = _save(img, "report")
+    return await asyncio.to_thread(desk.submit, img, lng, lat, note[:300], url, reporter[:40].strip(), accuracy_m,
+                                   category.strip().lower())
 
 
 @app.get("/api/reports")

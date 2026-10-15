@@ -80,6 +80,11 @@ The script creates a Docker Space, uploads code, weights and `backend/data/cache
 - **Backend:** Render free web service from `render.yaml` in **lite mode**: same twin, models, alerts, copilot and reports, but no PyTorch, so YOLO/CLIP are replaced by Gemini vision for photo checks (fits in 512 MB). Trained models load from `backend/data/cache/models.pkl` (written on first local run), so start-up takes seconds. A free uptime pinger (cron-job.org, every 10 min on `/api/campus`) keeps it awake.
 - **Full mode** (YOLO11n + fine-tuned bin model + CLIP on CPU) runs locally, or on any VM with `scripts/setup_vm.sh`.
 
+## Reporter app and CCTV
+
+- **Reporter app** (`/report`): installable PWA (Android "Install app", or package as an APK with PWABuilder from the live URL). Pick a category, add a photo (optional) and GPS. Photo reports are verified by AI instantly; reports without a photo are filed as unverified and become verified when 3 people report the same category within 60 m.
+- **CCTV auto-reporting**: `POST /api/cctv/<camera>` with a frame. If the vision model sees garbage, a leak or lights on in an empty room, an alert is raised at that camera's map location; it closes itself after 3 clean frames. Use the Vision tab ("Use as CCTV camera") or `scripts/cctv_agent.py <camera> <webcam|video|rtsp-url>`.
+
 ## Real sensors
 
 ```bash

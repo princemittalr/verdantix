@@ -308,3 +308,10 @@ dialog form { margin-top: 16px; display: flex; justify-content: flex-end; }
 [hidden] { display: none !important; }
 .aid { font-weight: 600; font-size: 11.5px; color: var(--muted); margin-right: 7px; }
 .panel .tabs { mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
+
+.pill.src-student-unverified { background: var(--warn-soft); color: #9a5a08; }
+.cctv { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; background: var(--accent-soft); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; }
+.cctv b { display: block; font-size: 13px; } .cctv small { color: var(--ink-2); font-size: 12px; }
+.cctv select { background: var(--surface); }
+.cctvres { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.cctvres.hit { background: var(--crit-soft); }

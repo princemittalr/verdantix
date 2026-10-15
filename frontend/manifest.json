@@ -1,0 +1,22 @@
+{
+  "name": "Verdantix: DSU campus reporter",
+  "short_name": "Verdantix",
+  "description": "Report garbage, water leaks and energy waste on the DSU Harohalli campus. Reports appear on the live campus digital twin.",
+  "id": "/report",
+  "start_url": "/report",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e9ebf1",
+  "theme_color": "#e9ebf1",
+  "categories": ["education", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Open live campus twin", "url": "/", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

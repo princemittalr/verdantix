@@ -8,7 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -103,7 +105,9 @@
       <select id="vSource" aria-label="Camera source"><option value="webcam">Webcam</option><option value="video">Video file</option><option value="image">Single image</option></select>
       <input type="file" id="vFile" accept="video/*,image/*" hidden>
     </div>
-    <div class="row">
+    <label class="cctv"><span><b>Use as CCTV camera</b><small>Problems it sees are reported automatically at this camera's location</small></span>
+      <select id="vCam"><option value="">Off</option></select></label>
+    <div class="row" id="vLinks">
       <label>Room <select id="vRoom"><option value="">none</option></select></label>
       <label>Bin <select id="vBin"><option value="">none</option></select></label>
     </div>
@@ -151,7 +155,9 @@
   <div class="tab" id="tab-students">
     <p class="sub">Students are sensors too. Snap a problem and it lands on the twin.</p>
     <form id="repForm" class="repform">
-      <input type="file" id="repFile" accept="image/*" capture="environment" required>
+      <select id="repCat" aria-label="Problem type"><option value="">What did you find? (AI decides from photo)</option><option value="waste">Garbage</option><option value="water">Water leak</option><option value="energy">Energy waste</option><option value="other">Something else</option></select>
+      <input type="file" id="repFile" accept="image/*">
+      <small>Photo is optional. Without one, the report is unverified until others confirm it.</small>
       <label>Where <select id="repZone"></select></label>
       <small>or click the map to drop a pin</small>
       <input id="repNote" placeholder="What's wrong? (optional)">
@@ -217,6 +223,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
