@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <header class="top">
@@ -49,6 +49,13 @@
       <button class="ghost" id="viewBtn" title="Switch between 3D and top-down view">2D</button>
       <button class="ghost" id="orbitBtn" title="Slowly orbit the campus">⟳ Orbit</button>
       <button class="ghost" id="homeBtn" title="Back to the whole campus">⌂ Campus</button>
+      <button id="walkBtn" title="Walk the real campus in 360° with live twin data on top">🚶 Walk in 360°</button>
+    </div>
+    <div id="walk" class="walk" hidden>
+      <iframe id="walkFrame" title="DSU 360 degree campus tour" allowfullscreen allow="fullscreen; gyroscope; accelerometer"></iframe>
+      <div class="walkbar"><button id="walkBack">← Back to twin</button>
+        <select id="walkBld" aria-label="Building"></select><a id="walkOpen" class="btnlink sub" target="_blank" rel="noopener">360° imagery: DSU official virtual tour ↗</a></div>
+      <div id="walkHud" class="walkhud"></div>
     </div>
     <div class="board" id="board"></div>
     <div class="demo">
@@ -83,6 +90,7 @@
     <div class="tab" id="tab-building">
       <select id="bldSelect"></select>
       <div id="bldInfo" class="stats"></div>
+      <button class="ghost" id="bldWalk">🚶 Walk inside this building in 360°</button>
       <canvas id="bldChart" height="180"></canvas>
       <h3>Rooms: SOE A Block <small>(AC · lights · occupancy)</small></h3>
       <div id="roomGrid" class="rooms"></div>
@@ -178,6 +186,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

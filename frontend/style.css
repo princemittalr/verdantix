@@ -178,3 +178,25 @@ dialog td, dialog th { border-bottom: 1px solid var(--line); padding: 4px 6px; t
 .viewctl { position: absolute; top: 10px; right: 52px; display: flex; gap: 6px; }
 .viewctl button { background: rgba(11,18,16,.85); padding: 6px 10px; }
 .viewctl button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* walk-in 360° mode */
+.walk { position: absolute; inset: 0; z-index: 5; background: #000; }
+.walk iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.walkbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; pointer-events: none; }
+.walkbar > * { pointer-events: auto; }
+.walkbar .sub { margin: 0 0 0 auto; background: rgba(11,18,16,.8); padding: 4px 8px; border-radius: 6px; font-size: 11px; }
+.walkhud { position: absolute; left: 10px; bottom: 10px; width: min(330px, calc(100% - 20px)); max-height: calc(100% - 70px); overflow-y: auto;
+  background: rgba(11,18,16,.92); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); backdrop-filter: blur(4px); }
+.walkhud.warn { border-left-color: var(--warn); } .walkhud.crit { border-left-color: var(--crit); }
+.wh-top { display: flex; align-items: center; gap: 8px; font: 700 17px var(--display); }
+.wh-top .grade { margin-left: auto; padding: 1px 7px; }
+.wh-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.wh-grid div { background: var(--raised); border-radius: 6px; padding: 6px 8px; display: grid; }
+.wh-grid span { font: 500 10px var(--mono); text-transform: uppercase; color: var(--muted); }
+.wh-grid b { font: 700 16px var(--display); font-variant-numeric: tabular-nums; }
+.wh-grid em { font-style: normal; font-size: 11px; color: var(--muted); } .wh-grid em.bad { color: var(--crit); }
+.wh-alert { background: var(--raised); border-left: 3px solid var(--warn); border-radius: 6px; padding: 6px 8px; font-size: 13px; display: grid; gap: 4px; }
+.wh-alert.crit { border-left-color: var(--crit); } .wh-alert small { color: var(--muted); } .wh-alert button { justify-self: start; padding: 3px 9px; font-size: 12px; }
+.wh-ok { color: var(--ok); font-size: 13px; }
+#bldWalk { width: 100%; margin-bottom: 8px; }

@@ -187,6 +187,44 @@ async function initMap() {
   });
 }
 
+// ---------------- walk-in mode: real 360° imagery + live twin HUD ----------------
+let walkId = null;
+const TOUR = Object.assign({ default: "https://www.dsu.edu.in/virtual-tour/" }, window.VX_TOUR || {});
+function openWalk(id = selected || Object.keys(S?.buildings || {})[0]) {
+  if (!id) return;
+  if (orbiting) toggleOrbit(false);
+  walkId = id;
+  const url = TOUR[id] || TOUR.default;
+  if ($("#walkFrame").dataset.url !== url) { $("#walkFrame").src = url; $("#walkFrame").dataset.url = url; }
+  $("#walkBld").value = id;
+  $("#walkOpen").href = url;
+  $("#walk").hidden = false;
+  renderWalk(S);
+}
+function closeWalk() { $("#walk").hidden = true; walkId = null; }
+function renderWalk(st) {
+  if (!walkId || !st) return;
+  const b = st.buildings[walkId];
+  if (!b) return;
+  const al = st.alerts.filter((a) => (a.status === "open" || a.status === "assigned") && a.asset.split("/")[0] === walkId);
+  const pct = (v, base) => (base ? Math.round((100 * (v - base)) / base) : 0);
+  const dp = pct(b.power_kw, b.baseline_kw), dw = pct(b.water_lph, b.water_baseline_lph);
+  const tank = Object.values(st.tanks || {}).find((t) => t.feeds.includes(walkId));
+  $("#walkHud").className = `walkhud ${b.status}`;
+  $("#walkHud").innerHTML = `
+    <div class="wh-top"><span class="dot ${b.status}"></span><b>${esc(b.name)}</b><span class="grade ${b.grade}">${b.grade}</span></div>
+    <div class="m">LIVE TWIN · ${new Date(st.time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}${b.live ? ' · <span class="live-tag">IoT</span>' : ""}</div>
+    <div class="wh-grid">
+      <div><span>Power</span><b>${fmt(b.power_kw)} kW</b><em class="${dp > 15 ? "bad" : ""}">${dp >= 0 ? "+" : ""}${dp}% vs normal</em></div>
+      <div><span>Water</span><b>${fmt(b.water_lph)} L/h</b><em class="${dw > 50 ? "bad" : ""}">${dw >= 0 ? "+" : ""}${dw}% vs normal</em></div>
+      <div><span>Green score</span><b>${b.score}/100</b></div>
+      ${tank ? `<div><span>${esc(tank.name)}</span><b>${tank.level_pct}%</b><em class="${tank.overflow_lph ? "bad" : ""}">pump ${tank.pump_on ? "ON" : "off"}${tank.overflow_lph ? " · spilling" : ""}</em></div>` : ""}
+    </div>
+    ${al.length ? al.map((a) => `<div class="wh-alert ${a.severity}"><b>${a.id}</b> ${esc(a.title)}<br><small>₹${fmt(a.inr_per_day)}/day · ${a.status}${a.work_order ? " · " + a.work_order : ""}</small>
+        ${a.status === "open" ? `<button data-assign="${a.id}">Assign</button>` : ""}</div>`).join("")
+      : `<div class="wh-ok">✓ No open issues in this building</div>`}`;
+}
+
 function toggleOrbit(on = !orbiting) {
   orbiting = on;
   $("#orbitBtn").classList.toggle("on", on);
@@ -269,6 +307,7 @@ function render(st) {
   renderAlerts(st);
   renderBuilding(st);
   updateMap(st);
+  renderWalk(st);
 }
 
 // Toast each new critical alert once (not the ones already open when the page loads).
@@ -413,6 +452,11 @@ document.addEventListener("change", async (e) => {
   toast(r.message, 5000);
 });
 $("#viewBtn").onclick = () => toggle3D();
+$("#walkBtn").onclick = () => openWalk();
+$("#bldWalk").onclick = () => openWalk(selected);
+$("#walkBack").onclick = () => { const id = walkId; closeWalk(); if (id) selectBuilding(id); };
+$("#walkBld").onchange = (e) => { selectBuilding(e.target.value); openWalk(e.target.value); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && walkId) closeWalk(); });
 $("#orbitBtn").onclick = () => toggleOrbit();
 $("#homeBtn").onclick = () => resetView();
 $("#showRoute").onchange = async (e) => {
@@ -744,6 +788,7 @@ async function boot() {
   await initMap();
   const blds = Object.entries(st.buildings);
   $("#bldSelect").innerHTML = blds.map(([id, b]) => `<option value="${id}">${b.name}</option>`).join("");
+  $("#walkBld").innerHTML = $("#bldSelect").innerHTML;
   $("#vRoom").innerHTML += Object.keys(st.rooms).map((r) => `<option value="${r}">${r.split("/")[1]}</option>`).join("");
   $("#vBin").innerHTML += Object.keys(st.bins).map((b) => `<option value="${b}">${b}</option>`).join("");
   $("#repZone").innerHTML = `<option value="">(click map)</option>` + campus.features.map((f) => `<option value="${f.properties.id}">${f.properties.name}</option>`).join("");
