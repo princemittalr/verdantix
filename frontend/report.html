@@ -3,43 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b1210">
+<meta name="theme-color" content="#e9ebf1">
 <title>Report a problem · Verdantix</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <style>
-  :root { --bg: #0b1210; --surface: #111c19; --raised: #172521; --line: #24352f; --fg: #e3ece8; --muted: #8fa39b;
-          --accent: #4cc79e; --ink: #062018; --warn: #f0a948; --crit: #ff6b5e; color-scheme: dark; }
+  :root { --bg: #e9ebf1; --surface: #ffffff; --raised: #f4f5f9; --line: #e4e6ee; --fg: #161a2c; --muted: #6e7389;
+          --accent: #161a2c; --ink: #ffffff; --warn: #e8962b; --crit: #e5484d; --ok: #1fa971; color-scheme: light; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Source Sans 3", system-ui, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Geist", system-ui, sans-serif; }
   main { max-width: 480px; margin: 0 auto; padding: 20px 16px calc(28px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
   header { display: flex; align-items: center; gap: 10px; }
-  .logo { font-size: 26px; color: var(--accent); }
-  h1 { font: 800 24px/1.15 "Bricolage Grotesque", system-ui, sans-serif; margin: 6px 0 0; }
+  .logo { width: 30px; height: 30px; border-radius: 10px; background: var(--fg); color: #8fe3c0; display: grid; place-items: center; font-size: 16px; }
+  h1 { font: 800 24px/1.15 "Geist", system-ui, sans-serif; margin: 6px 0 0; }
   .sub { color: var(--muted); font-size: 14px; margin: 0; }
-  .shot { position: relative; display: grid; place-items: center; min-height: 210px; border: 2px dashed var(--line); border-radius: 14px; background: var(--surface); cursor: pointer; overflow: hidden; text-align: center; padding: 16px; }
+  .shot { position: relative; display: grid; place-items: center; min-height: 210px; border: 2px dashed #cfd3e0; border-radius: 20px; background: var(--surface); box-shadow: 0 14px 36px -8px rgba(22,26,44,.14); cursor: pointer; overflow: hidden; text-align: center; padding: 16px; }
   .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .shot b { font: 700 18px "Bricolage Grotesque", system-ui, sans-serif; display: block; }
+  .shot b { font: 700 18px "Geist", system-ui, sans-serif; display: block; }
   .shot input { display: none; }
   .loc { display: flex; gap: 10px; align-items: center; background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
   .loc .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
-  .loc.ok .dot { background: var(--accent); }
+  .loc.ok .dot { background: var(--ok); }
   .loc.bad .dot { background: var(--crit); }
   .loc button { margin-left: auto; }
   label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
   input, select { font: inherit; color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 12px; width: 100%; }
-  button { font: 600 16px "Source Sans 3", system-ui, sans-serif; background: var(--accent); color: var(--ink); border: 0; border-radius: 10px; padding: 14px; cursor: pointer; }
+  button { font: 600 16px "Geist", system-ui, sans-serif; background: var(--accent); color: var(--ink); border: 0; border-radius: 10px; padding: 14px; cursor: pointer; }
   button.small { padding: 6px 10px; font-size: 13px; background: transparent; color: var(--fg); border: 1px solid var(--line); }
   button:disabled { opacity: .55; }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .result { border-radius: 12px; padding: 14px; background: var(--raised); border-left: 4px solid var(--accent); }
+  .result { border-radius: 16px; padding: 14px; background: var(--surface); border-left: 4px solid var(--ok); box-shadow: 0 14px 36px -8px rgba(22,26,44,.14); }
   .result.no { border-left-color: var(--warn); }
-  .result b { font: 700 18px "Bricolage Grotesque", system-ui, sans-serif; display: block; margin-bottom: 4px; }
-  .steps { display: flex; gap: 6px; flex-wrap: wrap; font: 500 11px "JetBrains Mono", monospace; color: var(--muted); text-transform: uppercase; }
+  .result b { font: 700 18px "Geist", system-ui, sans-serif; display: block; margin-bottom: 4px; }
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; font: 500 11px "Geist", system-ui, sans-serif; color: var(--muted); }
   .steps span { background: var(--surface); border: 1px solid var(--line); padding: 3px 7px; border-radius: 6px; }
-  .steps span.pass { color: var(--accent); border-color: #1d4d38; }
-  .steps span.fail { color: var(--crit); border-color: #5a2722; }
-  a { color: var(--accent); }
+  .steps span.pass { color: #0e7149; border-color: #bfe5cf; background: #e3f6ee; }
+  .steps span.fail { color: var(--crit); border-color: #f6c4c5; background: #fdeaea; }
+  a { color: #3e5bf2; }
 </style>
 </head>
 <body>
@@ -54,7 +54,7 @@
     <div style="display:grid;gap:14px">
       <label class="shot" id="shot">
         <input type="file" id="file" accept="image/*" capture="environment" required>
-        <div id="shotTxt"><b>📷 Take a photo</b><span class="sub">Overflowing bin, litter, leaking tap, empty room with lights on…</span></div>
+        <div id="shotTxt"><b>Take a photo</b><span class="sub">Overflowing bin, litter, leaking tap, empty room with lights on…</span></div>
         <img id="prev" alt="" hidden>
       </label>
 

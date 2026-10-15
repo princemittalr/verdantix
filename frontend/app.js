@@ -6,7 +6,47 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const fmt = (n) => (n == null ? "--" : Number(n).toLocaleString("en-IN"));
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const COLORS = { ok: "#3fbf7f", warn: "#f0a948", crit: "#ff6b5e" };
+const COLORS = { ok: "#1fa971", warn: "#e8962b", crit: "#e5484d" };
+// Building "clay": healthy buildings stay porcelain; only problems and the selection get colour.
+const CLAY = { ok: "#f7f8fb", warn: "#f2b25a", crit: "#ec6b6f", sel: "#5672f5" };
+const OFM = "https://tiles.openfreemap.org";
+// Light basemap built on OpenFreeMap vector tiles (free, no key). If tiles fail, the porcelain ground still renders.
+function baseStyle() {
+  return {
+    version: 8,
+    glyphs: `${OFM}/fonts/{fontstack}/{range}.pbf`,
+    sources: {
+      sat: { type: "raster", tileSize: 256, attribution: "Imagery © Esri", maxzoom: 19,
+             tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] },
+    },
+    layers: [
+      { id: "ground", type: "background", paint: { "background-color": "#e9ebf1" } },
+      { id: "sat", type: "raster", source: "sat", layout: { visibility: "none" }, paint: { "raster-saturation": -0.2, "raster-opacity": 0.95 } },
+    ],
+  };
+}
+// Roads, greenery and water from OpenFreeMap, added after load so the twin still works if the tiles are unreachable.
+function addBasemap() {
+  try {
+    map.addSource("omt", { type: "vector", url: `${OFM}/planet` });
+    const L = [
+      { id: "green", type: "fill", source: "omt", "source-layer": "landcover", filter: ["in", ["get", "class"], ["literal", ["grass", "wood", "farmland"]]],
+        paint: { "fill-color": "#dbeadf", "fill-opacity": 0.8 } },
+      { id: "park", type: "fill", source: "omt", "source-layer": "park", paint: { "fill-color": "#d5e8da", "fill-opacity": 0.7 } },
+      { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": "#d2e1f5" } },
+      { id: "road-case", type: "line", source: "omt", "source-layer": "transportation", filter: ["!=", ["get", "class"], "path"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#d9dce5", "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 13, 1.5, 18, 22] } },
+      { id: "road", type: "line", source: "omt", "source-layer": "transportation", filter: ["!=", ["get", "class"], "path"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 13, 0.8, 18, 18] } },
+      { id: "path", type: "line", source: "omt", "source-layer": "transportation", filter: ["==", ["get", "class"], "path"],
+        paint: { "line-color": "#ffffff", "line-width": 1.4, "line-dasharray": [2, 1.5] } },
+      { id: "osm-bld", type: "fill", source: "omt", "source-layer": "building", paint: { "fill-color": "#dfe2ea" } },
+    ];
+    L.forEach((l) => map.addLayer(l, "sat"));
+  } catch (e) { console.warn("basemap unavailable", e); }
+}
 let S = null;              // latest twin state
 let campus = null;         // campus geojson
 let map, bldChart, weekChart;
@@ -87,54 +127,48 @@ async function initMap() {
   const center = [77.4500, 12.6605];
   map = new maplibregl.Map({
     container: "map",
-    style: {
-      version: 8,
-      glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
-      sources: {
-        sat: { type: "raster", tileSize: 256, attribution: "Imagery © Esri",
-               tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] },
-      },
-      layers: [{ id: "sat", type: "raster", source: "sat", paint: { "raster-saturation": -0.35, "raster-brightness-max": 0.75 } }],
-    },
+    style: baseStyle(),
+    attributionControl: { compact: true, customAttribution: "© OpenFreeMap © OpenStreetMap" },
     center, zoom: 16.4, pitch: 55, bearing: -20, maxZoom: 19.5,
   });
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   map.on("load", () => {
+    addBasemap();
     // Campus-only view: everything outside the DSU boundary is dimmed and the camera stays on campus.
     const { ring, center: cc } = campusBoundary(70);
     const xs = ring.map((c) => c[0]), ys = ring.map((c) => c[1]);
     const bounds = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
     const padLng = (bounds[1][0] - bounds[0][0]) * 0.9, padLat = (bounds[1][1] - bounds[0][1]) * 0.9;
     map.setMaxBounds([[bounds[0][0] - padLng, bounds[0][1] - padLat], [bounds[1][0] + padLng, bounds[1][1] + padLat]]);
-    map.fitBounds(bounds, { padding: { top: 30, bottom: 60, left: 230, right: 20 }, pitch: 0, bearing: -20, duration: 0 });
+    map.fitBounds(bounds, { padding: { top: 90, bottom: 70, left: 430, right: 280 }, pitch: 0, bearing: -20, duration: 0 });
     map.setMinZoom(Math.max(map.getZoom() - 0.8, 14));
-    map.jumpTo({ zoom: map.getZoom() + 0.4, pitch: 58 });
+    map.jumpTo({ pitch: 58 });
     campusView = { center: map.getCenter(), zoom: map.getZoom(), pitch: 58, bearing: -20 };
-    map.setLight({ anchor: "map", position: [1.4, 215, 35], intensity: 0.45, color: "#ffffff" });
+    map.setLight({ anchor: "map", position: [1.4, 215, 35], intensity: 0.32, color: "#ffffff" });
 
     map.addSource("mask", { type: "geojson", data: { type: "Feature", properties: {},
       geometry: { type: "Polygon", coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]], ring.slice().reverse()] } } });
-    map.addLayer({ id: "mask", type: "fill", source: "mask", paint: { "fill-color": "#050a08", "fill-opacity": 0.78 } });
+    map.addLayer({ id: "mask", type: "fill", source: "mask", paint: { "fill-color": "#e9ebf1", "fill-opacity": 0.72 } });
     map.addSource("boundary", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } } });
-    map.addLayer({ id: "boundary-glow", type: "line", source: "boundary", paint: { "line-color": "#4cc79e", "line-width": 10, "line-opacity": 0.18, "line-blur": 6 } });
-    map.addLayer({ id: "boundary", type: "line", source: "boundary", paint: { "line-color": "#4cc79e", "line-width": 1.6, "line-dasharray": [3, 2] } });
+    map.addLayer({ id: "boundary-glow", type: "line", source: "boundary", paint: { "line-color": "#3e5bf2", "line-width": 12, "line-opacity": 0.10, "line-blur": 8 } });
+    map.addLayer({ id: "boundary", type: "line", source: "boundary", paint: { "line-color": "#3e5bf2", "line-width": 1.4, "line-opacity": 0.6, "line-dasharray": [2, 2] } });
 
     map.addSource("campus", { type: "geojson", data: campus, promoteId: "id" });
     map.addLayer({ id: "sports", type: "fill", source: "campus", filter: ["==", ["get", "type"], "sports"],
-                   paint: { "fill-color": "#3fbf7f", "fill-opacity": 0.22, "fill-outline-color": "#7ee2b4" } });
+                   paint: { "fill-color": "#bfe5cf", "fill-opacity": 0.85, "fill-outline-color": "#9fd4b6" } });
     map.addLayer({ id: "footprint", type: "line", source: "campus",
                    filter: ["all", ["==", ["geometry-type"], "Polygon"], ["!=", ["get", "type"], "sports"]],
-                   paint: { "line-color": "#e3ece8", "line-width": 1, "line-opacity": 0.5 } });
+                   paint: { "line-color": "#c9cdd9", "line-width": 1, "line-opacity": 0.8 } });
     map.addSource("floors", { type: "geojson", data: floorSlabs(), promoteId: "fid" });
-    const statusColor = ["match", ["coalesce", ["feature-state", "status"], "ok"], "crit", COLORS.crit, "warn", COLORS.warn, COLORS.ok];
+    const statusColor = ["match", ["coalesce", ["feature-state", "status"], "ok"], "crit", CLAY.crit, "warn", CLAY.warn, CLAY.ok];
     map.addLayer({ id: "bld", type: "fill-extrusion", source: "floors",
                    paint: {
                      "fill-extrusion-color": ["case", ["boolean", ["feature-state", "sel"], false],
-                       ["interpolate", ["linear"], 0.5, 0, statusColor, 1, "#ffffff"],
-                       ["boolean", ["get", "roof"], false], ["interpolate", ["linear"], 0.35, 0, statusColor, 1, "#ffffff"], statusColor],
+                       ["case", ["boolean", ["get", "roof"], false], "#7d93f8", CLAY.sel],
+                       ["boolean", ["get", "roof"], false], ["interpolate", ["linear"], 0.45, 0, statusColor, 1, "#ffffff"], statusColor],
                      "fill-extrusion-base": ["get", "base"],
                      "fill-extrusion-height": ["get", "top"],
-                     "fill-extrusion-opacity": 0.88,
+                     "fill-extrusion-opacity": 0.96,
                      "fill-extrusion-vertical-gradient": true,
                    } });
     map.addSource("beacons", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -147,21 +181,18 @@ async function initMap() {
       const k = (performance.now() - t0) / 1000;
       map.setPaintProperty("beacons", "fill-extrusion-opacity", 0.5 + 0.25 * Math.sin(k * 2.2));
     }, 120);
-    map.addLayer({ id: "bld-label", type: "symbol", source: "campus", filter: ["==", ["geometry-type"], "Polygon"],
-                   layout: { "text-field": ["get", "name"], "text-size": 12, "text-font": ["Noto Sans Regular"], "symbol-placement": "point" },
-                   paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.2 } });
     map.addSource("pts", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "pts", type: "circle", source: "pts",
                    paint: { "circle-radius": ["match", ["get", "type"], "bin", 7, 5],
-                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#9fd3ff", "water_meter", "#5fa8ff", "#ccc"],
-                            "circle-stroke-color": "#000", "circle-stroke-width": 1.5 } });
+                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#161a2c", "water_meter", "#3e6fe0", "#9aa0b4"],
+                            "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
     map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "route", type: "line", source: "route", layout: { visibility: "none" },
-                   paint: { "line-color": "#ffd166", "line-width": 4, "line-dasharray": [2, 1] } });
+                   paint: { "line-color": "#3e5bf2", "line-width": 4, "line-dasharray": [1.5, 1] } });
     map.addSource("hot", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "hot", type: "circle", source: "hot", layout: { visibility: "none" },
-                   paint: { "circle-radius": ["*", ["get", "weight"], 6], "circle-color": "#ff6b5e", "circle-opacity": 0.25,
-                            "circle-stroke-color": "#ff6b5e", "circle-stroke-width": 1 } });
+                   paint: { "circle-radius": ["*", ["get", "weight"], 6], "circle-color": "#e5484d", "circle-opacity": 0.16,
+                            "circle-stroke-color": "#e5484d", "circle-stroke-width": 1.5 } });
 
     map.on("click", "bld", (e) => selectBuilding(e.features[0].properties.id));
     map.on("click", "pts", (e) => {
@@ -222,7 +253,7 @@ function renderWalk(st) {
     </div>
     ${al.length ? al.map((a) => `<div class="wh-alert ${a.severity}"><b>${a.id}</b> ${esc(a.title)}<br><small>₹${fmt(a.inr_per_day)}/day · ${a.status}${a.work_order ? " · " + a.work_order : ""}</small>
         ${a.status === "open" ? `<button data-assign="${a.id}">Assign</button>` : ""}</div>`).join("")
-      : `<div class="wh-ok">✓ No open issues in this building</div>`}`;
+      : `<div class="wh-ok">No open issues in this building</div>`}`;
 }
 
 function toggleOrbit(on = !orbiting) {
@@ -239,7 +270,7 @@ function toggleOrbit(on = !orbiting) {
 }
 function toggle3D(on = !is3D) {
   is3D = on;
-  $("#viewBtn").textContent = on ? "2D" : "3D";
+  $("#viewBtn").querySelector("span").textContent = on ? "2D" : "3D";
   if (!on && orbiting) toggleOrbit(false);
   map.easeTo({ pitch: on ? 58 : 0, bearing: on ? -20 : 0, duration: 900 });
 }
@@ -248,8 +279,30 @@ function resetView() {
   if (campusView) map.flyTo({ ...campusView, speed: 0.8 });
 }
 
+const bmarks = {};
+function updateBadges(st) {
+  for (const f of campus.features) {
+    const id = f.properties.id, b = st.buildings[id];
+    if (!b) continue;
+    if (!bmarks[id]) {
+      const el = document.createElement("div");
+      el.className = "bmark";
+      el.innerHTML = `<b></b><span>${esc(b.name)}</span>`;
+      el.title = b.name;
+      el.onclick = (e) => { e.stopPropagation(); selectBuilding(id); };
+      bmarks[id] = { el, m: new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat(f.properties.center).addTo(map) };
+    }
+    const { el } = bmarks[id];
+    el.classList.toggle("warn", b.status === "warn");   // classList, not className: keep MapLibre's own marker classes
+    el.classList.toggle("crit", b.status === "crit");
+    el.classList.toggle("sel", id === selected);
+    el.querySelector("b").textContent = b.score;
+  }
+}
+
 function updateMap(st) {
   if (!map || !map.getSource("pts")) return;
+  updateBadges(st);
   const floorsOf = Object.fromEntries(campus.features.map((f) => [f.properties.id, Math.max(f.properties.floors || 1, 1)]));
   for (const [id, b] of Object.entries(st.buildings)) {
     map.setFeatureState({ source: "campus", id }, { status: b.status, sel: id === selected });
@@ -263,7 +316,7 @@ function updateMap(st) {
     const bin = st.bins[p.id];
     if (bin) { p.color = COLORS[bin.status]; p.info = `Fill ${bin.fill}% · full in ${bin.eta_full_h} h · ${bin.source}`; }
     const tank = st.tanks?.[p.id];
-    if (tank) { p.color = tank.status === "ok" ? "#5fa8ff" : COLORS[tank.status]; p.info = `Level ${tank.level_pct}% · pump ${tank.pump_on ? "ON" : "off"}${tank.overflow_lph ? ` · overflowing ${fmt(tank.overflow_lph)} L/h` : ""}`; }
+    if (tank) { p.color = tank.status === "ok" ? "#3e6fe0" : COLORS[tank.status]; p.info = `Level ${tank.level_pct}% · pump ${tank.pump_on ? "ON" : "off"}${tank.overflow_lph ? ` · overflowing ${fmt(tank.overflow_lph)} L/h` : ""}`; }
     return { type: "Feature", geometry: f.geometry, properties: p };
   });
   map.getSource("pts").setData({ type: "FeatureCollection", features: pts });
@@ -276,8 +329,8 @@ function updateMap(st) {
     const el = document.createElement("div");
     el.className = `pulse ${a.severity}`;
     el.title = a.title;
-    markers[a.id] = new maplibregl.Marker({ element: el }).setLngLat([a.lng, a.lat])
-      .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(`<b>${a.id} · ${esc(a.title)}</b><br>${esc(a.detail)}<br>₹${fmt(a.inr_per_day)}/day`))
+    markers[a.id] = new maplibregl.Marker({ element: el, offset: [0, 18] }).setLngLat([a.lng, a.lat])
+      .setPopup(new maplibregl.Popup({ offset: 16 }).setHTML(`<b>${a.id}: ${esc(a.title)}</b><br>${esc(a.detail)}<br>₹${fmt(a.inr_per_day)} a day`))
       .addTo(map);
   }
 }
@@ -289,7 +342,8 @@ function render(st) {
   $("#simTime").textContent = t.toLocaleString("en-IN", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   const k = st.kpis;
   $("#kScore").textContent = k.green_score;
-  $("#kGrade").textContent = "/100";
+  $("#ring").style.setProperty("--p", k.green_score);
+  $("#ring").style.setProperty("--ring", k.green_score >= 85 ? COLORS.ok : k.green_score >= 70 ? "#7fb81f" : k.green_score >= 55 ? COLORS.warn : COLORS.crit);
   $("#kPower").textContent = fmt(k.power_kw);
   $("#kEnergy").textContent = fmt(k.energy_today_kwh);
   $("#kCost").textContent = fmt(k.cost_today_inr);
@@ -298,10 +352,10 @@ function render(st) {
   $("#kAlerts").textContent = k.open_alerts;
   $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)}/day at risk` : "";
   const tb = st.tariff || {};
-  $("#tariff").textContent = tb.band ? `${tb.band} tariff · ₹${tb.inr_per_kwh}/kWh` : "--";
-  $("#tariff").className = `badge ${tb.band || ""}`;
+  $("#tariff").textContent = tb.band ? `${tb.band[0].toUpperCase() + tb.band.slice(1)} tariff ₹${tb.inr_per_kwh}/kWh` : "--";
+  $("#tariff").className = `tariff ${tb.band || ""}`;
   $("#iot").hidden = !st.live_sensors;
-  $("#iot").textContent = `IoT live · ${st.live_sensors}`;
+  $("#iot").textContent = `${st.live_sensors} live sensor${st.live_sensors === 1 ? "" : "s"}`;
   announce(st);
   renderBoard(st);
   renderAlerts(st);
@@ -336,15 +390,15 @@ function flyTo(lng, lat, zoom = 17.6) { if (map) map.flyTo({ center: [lng, lat],
 
 function renderBoard(st) {
   const rows = Object.entries(st.buildings).sort((a, b) => b[1].score - a[1].score);
-  $("#board").innerHTML = `<h4>Green score leaderboard</h4>` + rows.map(([id, b], i) =>
-    `<div class="r"><span>${i + 1}</span><span>${b.name}</span><span>${b.score}</span><span class="grade ${b.grade}">${b.grade}</span></div>`).join("");
+  $("#board").innerHTML = `<h4>Greenest buildings</h4>` + rows.map(([id, b], i) =>
+    `<div class="r" data-bld="${id}"><span>${i + 1}</span><span>${esc(b.name)}</span><span>${b.score}</span><span class="grade ${b.grade}">${b.grade}</span></div>`).join("");
 }
 
 function alertCard(a) {
   const order = a.work_order ? S.orders.find((o) => o.id === a.work_order) : null;
   const faded = a.status === "resolved" || a.status === "self-cleared";
   return `<div class="card clickable ${faded ? "ok faded" : a.severity}" data-fly="${a.lng},${a.lat}" title="Click to locate on the map">
-    <div class="t">${a.id} · ${esc(a.title)}</div>
+    <div class="t"><span class="aid">${a.id}</span>${esc(a.title)}</div>
     <div class="d">${esc(a.detail)}</div>
     <div class="m"><span class="pill">${a.kind}</span><span class="pill src-${a.source}">${a.source}</span>
       <span>₹${fmt(a.inr_per_day)}/day</span><span>${a.co2_kg_per_day} kg CO₂/day</span><span>${a.status}${order ? " · " + order.id : ""}</span></div>
@@ -368,24 +422,29 @@ function renderAlerts(st) {
 async function selectBuilding(id) {
   selected = id;
   $("#bldSelect").value = id;
+  if (S && map) updateMap(S);
   switchTab("building");
   const s = await api(`/api/building/${id}/series`);
   const pad = (n) => Array(n).fill(null);
   const fc = s.forecast || [];
   const data = { labels: [...s.t, ...(s.t_fc || [])], datasets: [
-    { label: "Actual kWh", data: [...s.kwh, ...pad(fc.length)], borderColor: "#4cc79e", backgroundColor: "rgba(76,199,158,.15)", fill: true, tension: 0.3, pointRadius: 0 },
-    { label: "Expected", data: [...s.baseline, ...pad(fc.length)], borderColor: "#8fa39b", borderDash: [4, 4], pointRadius: 0, tension: 0.3 },
-    { label: "AI forecast (next 24 h)", data: [...pad(s.kwh.length - 1), s.kwh[s.kwh.length - 1], ...fc], borderColor: "#c99bff", borderDash: [6, 3], pointRadius: 0, tension: 0.3 },
+    { label: "Actual", data: [...s.kwh, ...pad(fc.length)], borderColor: "#161a2c", backgroundColor: "rgba(22,26,44,.06)", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+    { label: "Normal", data: [...s.baseline, ...pad(fc.length)], borderColor: "#9aa0b4", borderDash: [4, 4], pointRadius: 0, tension: 0.35, borderWidth: 1.5 },
+    { label: "AI forecast", data: [...pad(s.kwh.length - 1), s.kwh[s.kwh.length - 1], ...fc], borderColor: "#3e5bf2", backgroundColor: "rgba(62,91,242,.08)", fill: true, borderDash: [5, 3], pointRadius: 0, tension: 0.35, borderWidth: 2 },
   ] };
   if (bldChart) { bldChart.data = data; bldChart.update(); }
-  else bldChart = new Chart($("#bldChart"), { type: "line", data, options: chartOpts("kWh per hour · last 24 h and forecast") });
+  else bldChart = new Chart($("#bldChart"), { type: "line", data, options: chartOpts("kWh per hour: last 24 h and next 24 h") });
   forecastInfo = s.forecast ? { id, kwh: s.forecast_kwh_24h, peak: s.forecast_peak_kw, at: s.forecast_peak_at, mape: s.forecast_mape_pct } : null;
   if (S) renderBuilding(S);
 }
 
 function chartOpts(title) {
-  return { responsive: true, animation: false, plugins: { legend: { labels: { color: "#8fa39b", boxWidth: 12 } }, title: { display: !!title, text: title, color: "#8fa39b" } },
-           scales: { x: { ticks: { color: "#8fa39b", maxTicksLimit: 8 }, grid: { color: "#1c2a25" } }, y: { ticks: { color: "#8fa39b" }, grid: { color: "#1c2a25" } } } };
+  const f = { family: "Geist, system-ui, sans-serif", size: 11 };
+  return { responsive: true, animation: false,
+           plugins: { legend: { labels: { color: "#3a3f57", boxWidth: 10, boxHeight: 10, usePointStyle: true, font: f } },
+                      title: { display: !!title, text: title, color: "#6e7389", font: { ...f, size: 12, weight: "600" }, align: "start" } },
+           scales: { x: { ticks: { color: "#6e7389", maxTicksLimit: 8, font: f }, grid: { display: false }, border: { display: false } },
+                     y: { ticks: { color: "#6e7389", font: f, maxTicksLimit: 5 }, grid: { color: "#e4e6ee" }, border: { display: false } } } };
 }
 
 function renderBuilding(st) {
@@ -405,7 +464,7 @@ function renderBuilding(st) {
       <div class="m"><span>peak-hour pumping today: ${t.peak_pump_min_today} min</span></div></div></div></div>`).join("") || `<div class="sub">No tanks mapped.</div>`;
   const waste = new Set(st.alerts.filter((a) => a.rule === "empty-room" && a.status !== "resolved" && a.status !== "self-cleared").map((a) => a.asset));
   $("#roomGrid").innerHTML = Object.entries(st.rooms).map(([r, v]) => `<div class="room ${waste.has(r) ? "waste" : ""}">
-      <b>${r.split("/")[1]}</b>AC ${v.ac_kw} kW<br>Light ${v.light_kw} kW<br>${v.people != null ? "📷 " + v.people + " people" : "occ " + Math.round(v.occ_prob * 100) + "%"}<br>${v.temp_c}°C</div>`).join("");
+      <b>${r.split("/")[1]}</b>AC ${v.ac_kw} kW<br>Light ${v.light_kw} kW<br>${v.people != null ? "Camera: " + v.people + " people" : "occ " + Math.round(v.occ_prob * 100) + "%"}<br>${v.temp_c}°C</div>`).join("");
   $("#binList").innerHTML = Object.entries(st.bins).sort((a, b) => b[1].fill - a[1].fill).map(([id, v]) => `<div class="card ${v.status}">
       <div class="t">${id} <small class="d">${v.source}</small></div>
       <div class="bar"><i class="${v.status}" style="width:${v.fill}%"></i></div>
@@ -452,6 +511,12 @@ document.addEventListener("change", async (e) => {
   toast(r.message, 5000);
 });
 $("#viewBtn").onclick = () => toggle3D();
+$("#showSat").onchange = (e) => {
+  if (!map?.getLayer("sat")) return;
+  map.setLayoutProperty("sat", "visibility", e.target.checked ? "visible" : "none");
+  map.setPaintProperty("mask", "fill-opacity", e.target.checked ? 0.55 : 0.72);
+};
+$("#board").addEventListener("click", (e) => { const r = e.target.closest("[data-bld]"); if (r) selectBuilding(r.dataset.bld); });
 $("#walkBtn").onclick = () => openWalk();
 $("#bldWalk").onclick = () => openWalk(selected);
 $("#walkBack").onclick = () => { const id = walkId; closeWalk(); if (id) selectBuilding(id); };
@@ -519,7 +584,7 @@ async function analyseOnce() {
   drawBoxes(r, f.w, f.h);
   const c = r.clip;
   $("#vOut").innerHTML = `<div><b>${r.people}</b> people · ${r.bin ? `bin: <b>${r.bin.label}</b> (${Math.round(r.bin.conf * 100)}%)` : "no bin model hit"} · ${r.ms} ms</div>
-    <div>CLIP issue: <b>${c.issue}</b> ${Math.round(c.issue_score * 100)}% ${c.issue_score >= 0.5 ? "⚠️" : ""}</div>
+    <div>CLIP issue: <b>${c.issue}</b> ${Math.round(c.issue_score * 100)}% ${c.issue_score >= 0.5 ? "(problem)" : ""}</div>
     <div>${c.top.map((t) => `<span class="tag">${t.label} ${Math.round(t.p * 100)}%</span>`).join("")}</div>
     ${r.events.length ? `<div>Twin updated: ${r.events.join(" · ")}</div>` : ""}`;
 }
@@ -645,7 +710,7 @@ $("#genReport").onclick = async () => {
   $("#pdfLink").hidden = false;
   $("#reportOut").innerHTML = md(r.narrative) + `<div class="sub">Written by ${r.provider} from twin data.</div>`;
   const h = await api("/api/history?days=7");
-  const data = { labels: h.daily_kwh.map((_, i) => `Day ${i + 1}`), datasets: [{ label: "Campus kWh per day", data: h.daily_kwh, backgroundColor: "#4cc79e" }] };
+  const data = { labels: h.daily_kwh.map((_, i) => `Day ${i + 1}`), datasets: [{ label: "Campus kWh per day", data: h.daily_kwh, backgroundColor: "#3e5bf2", borderRadius: 6 }] };
   if (weekChart) { weekChart.data = data; weekChart.update(); } else weekChart = new Chart($("#weekChart"), { type: "bar", data, options: chartOpts() });
 };
 
@@ -759,18 +824,18 @@ async function runStep(i) {
   clearTimeout(auto.timer);
   if (i >= STEPS.length) return stopAuto();
   auto.i = i;
-  $("#capStep").textContent = `Guided demo · ${i + 1} / ${STEPS.length}`;
+  $("#capStep").textContent = `Guided demo, step ${i + 1} of ${STEPS.length}`;
   $("#capText").textContent = STEPS[i][0];
-  $("#capNext").textContent = i === STEPS.length - 1 ? "Finish" : "Next ▸";
+  $("#capNext").textContent = i === STEPS.length - 1 ? "Finish" : "Next";
   try { await STEPS[i][1](); } catch (e) { console.warn(e); }
   if (auto && auto.i === i) auto.timer = setTimeout(() => runStep(i + 1), 11000);
 }
-function stopAuto() { if (auto) clearTimeout(auto.timer); auto = null; $("#caption").hidden = true; $("#autoBtn").textContent = "▶ Guided demo"; }
+function stopAuto() { if (auto) clearTimeout(auto.timer); auto = null; $("#caption").hidden = true; $("#autoBtn").innerHTML = '<svg><use href="#i-play"/></svg><span>Guided demo</span>'; }
 $("#autoBtn").onclick = () => {
   if (auto) return stopAuto();
   auto = { i: 0 };
   $("#caption").hidden = false;
-  $("#autoBtn").textContent = "■ Stop demo";
+  $("#autoBtn").innerHTML = '<svg><use href="#i-stop"/></svg><span>Stop demo</span>';
   runStep(0);
 };
 $("#capNext").onclick = () => auto && runStep(auto.i + 1);
