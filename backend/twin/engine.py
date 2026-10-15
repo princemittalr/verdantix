@@ -125,7 +125,7 @@ class Twin:
         with self.lock:
             if kind == "leak":
                 target = target or "boys-hostel"
-                self.scenarios.append({"kind": "leak", "target": target, "lph": 340.0, "start": sim})
+                self.scenarios.append({"kind": "leak", "target": target, "lph": 600.0, "start": sim})
             elif kind == "ac_night":
                 target = target or self.room_ids[0]
                 self.scenarios.append({"kind": "ac_night", "target": target, "kw": 3.2, "start": sim})
@@ -267,7 +267,7 @@ class Twin:
 
         # Campus water main: sustained excess inflow (leak detector), localised by pressure drop.
         w = state["water"]
-        if w["leak_score"] > 1:
+        if w["leak_score"] > 1 or w["scenario_lph"] > 0:
             zone = w["likely_zone"]
             excess = max(w["mnf_excess_lph"], w["scenario_lph"])
             kl_day = excess * 24 / 1000

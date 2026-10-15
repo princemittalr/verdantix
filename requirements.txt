@@ -1,0 +1,22 @@
+# Older pinned versions pass Windows Smart App Control; newer wheels may be blocked.
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+scikit-learn==1.5.2
+opencv-python==4.10.0.84
+matplotlib==3.9.2
+PyWavelets==1.7.0
+pytz
+openpyxl
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+pillow
+imagehash
+reportlab
+torch
+torchvision
+ultralytics
+transformers
+huggingface_hub

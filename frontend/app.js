@@ -47,7 +47,8 @@ async function initMap() {
   map.on("load", () => {
     const xs = [], ys = [];
     campus.features.forEach((f) => (f.geometry.type === "Point" ? [f.geometry.coordinates] : f.geometry.coordinates[0]).forEach(([x, y]) => { xs.push(x); ys.push(y); }));
-    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, pitch: 55, bearing: -20, duration: 0 });
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 40, bottom: 40, left: 220, right: 20 }, pitch: 50, bearing: -20, duration: 0 });
+    map.setZoom(map.getZoom() + 0.5);
     map.addSource("campus", { type: "geojson", data: campus, promoteId: "id" });
     map.addLayer({ id: "sports", type: "fill", source: "campus", filter: ["==", ["get", "type"], "sports"],
                    paint: { "fill-color": "#3fbf7f", "fill-opacity": 0.18, "fill-outline-color": "#3fbf7f" } });

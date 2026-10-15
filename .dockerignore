@@ -1,0 +1,8 @@
+venv/
+datasets/
+runs/
+.git/
+.env
+backend/uploads/
+**/__pycache__/
+*.log
