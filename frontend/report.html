@@ -71,7 +71,9 @@
   <div id="out"></div>
   <p class="sub">Checks, in order: on campus · not a duplicate photo · AI sees a real problem · not already reported nearby. <a href="/">Open the live twin</a></p>
 </main>
+<script src="config.js"></script>
 <script>
+const API = String(window.VX_API || "").replace(/\/$/, "");
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 let pos = null, campus = null, blob = null;
@@ -94,7 +96,7 @@ function locate() {
 $("#locBtn").onclick = locate;
 locate();
 
-fetch("/api/campus").then((r) => r.json()).then((g) => {
+fetch(API + "/api/campus").then((r) => r.json()).then((g) => {
   campus = g;
   $("#zone").innerHTML += g.features.filter((f) => f.properties.type !== "camera" && f.properties.type !== "water_meter")
     .map((f) => `<option value="${f.properties.id}">${esc(f.properties.name)}</option>`).join("");
@@ -145,7 +147,7 @@ $("#f").onsubmit = async (e) => {
   fd.append("note", $("#note").value.trim()); fd.append("reporter", name);
   $("#go").disabled = true; $("#go").textContent = "Checking with AI…";
   try {
-    const r = await fetch("/api/reports", { method: "POST", body: fd });
+    const r = await fetch(API + "/api/reports", { method: "POST", body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
     $("#out").innerHTML = d.ok

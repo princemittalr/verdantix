@@ -1,4 +1,7 @@
 // Verdantix dashboard: live twin over WebSocket, 3D campus map, operations panel.
+// Backend base URL: "" when this page is served by the FastAPI server, else the tunnel URL from config.js.
+const API = String(window.VX_API || "").replace(/\/$/, "");
+const media = (p) => (p && p.startsWith("/") ? API + p : p);
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const fmt = (n) => (n == null ? "--" : Number(n).toLocaleString("en-IN"));
@@ -22,7 +25,9 @@ function toast(msg, ms = 3500) {
 }
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
+  let r;
+  try { r = await fetch(API + path, opts); }
+  catch { throw new Error(API ? "the live twin backend is offline (laptop server or tunnel not running)" : "server not reachable"); }
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.headers.get("content-type")?.includes("json") ? r.json() : r;
 }
@@ -192,7 +197,7 @@ function alertCard(a) {
     <div class="d">${esc(a.detail)}</div>
     <div class="m"><span class="pill">${a.kind}</span><span class="pill src-${a.source}">${a.source}</span>
       <span>₹${fmt(a.inr_per_day)}/day</span><span>${a.co2_kg_per_day} kg CO₂/day</span><span>${a.status}${order ? " · " + order.id : ""}</span></div>
-    ${a.evidence?.image ? `<img src="${a.evidence.image}" alt="" style="max-width:100%;border-radius:6px">` : ""}
+    ${a.evidence?.image ? `<img src="${media(a.evidence.image)}" alt="" style="max-width:100%;border-radius:6px">` : ""}
     ${a.status === "open" ? `<div class="act"><button data-assign="${a.id}">Assign to ${({ water: "Plumbing", energy: "Electrical", waste: "Housekeeping" })[a.kind] || "Facilities"}</button>
       <button class="ghost" data-dismiss="${a.id}">Dismiss</button></div>` : ""}
   </div>`;
@@ -512,7 +517,7 @@ async function loadReports() {
     : `<div class="sub">Add your name to a report to earn credits (10 per accepted report, 2 per confirmation).</div>`;
   const rs = await api("/api/reports");
   $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card clickable ${r.kind === "water" ? "crit" : "warn"}" data-fly="${r.lng},${r.lat}"><div class="t">${r.id} · ${r.kind} · ${esc(r.zone)} <small class="d">by ${esc(r.reporter || "anonymous")}</small></div>
-    <img src="${r.image}" alt="" style="max-width:100%;border-radius:6px"><div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span>${r.alert}</span></div></div>`).join("")
+    <img src="${media(r.image)}" alt="" style="max-width:100%;border-radius:6px"><div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span>${r.alert}</span></div></div>`).join("")
     : `<div class="sub">No student reports yet.</div>`;
 }
 
@@ -615,6 +620,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && auto) st
 
 // ---------------- boot ----------------
 async function boot() {
+  $("#pdfLink").href = API + "/api/report/weekly.pdf";
   await initMap();
   const st = await api("/api/state");
   const blds = Object.entries(st.buildings);
@@ -632,7 +638,8 @@ async function boot() {
   connect();
 }
 function connect() {
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  const base = API ? new URL(API) : location;
+  const ws = new WebSocket(`${base.protocol === "https:" ? "wss" : "ws"}://${base.host}/ws`);
   ws.onmessage = (e) => render(JSON.parse(e.data));
   ws.onclose = () => setTimeout(connect, 2000);
 }

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -24,6 +25,8 @@ from vision.detector import Vision
 from vision.reports import ReportDesk
 
 app = FastAPI(title="Verdantix")
+# The dashboard can be hosted elsewhere (e.g. Vercel) and call this API through a tunnel.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 twin = Twin()
 seeded = twin.backfill(30)
 vision = Vision()
