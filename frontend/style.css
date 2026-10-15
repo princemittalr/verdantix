@@ -173,3 +173,8 @@ dialog td, dialog th { border-bottom: 1px solid var(--line); padding: 4px 6px; t
 .maplibregl-popup-tip { border-top-color: var(--raised) !important; border-bottom-color: var(--raised) !important; }
 .maplibregl-popup-close-button { color: var(--muted); font-size: 16px; padding: 0 6px; background: transparent; }
 .demo { bottom: 34px; }
+
+/* map view controls */
+.viewctl { position: absolute; top: 10px; right: 52px; display: flex; gap: 6px; }
+.viewctl button { background: rgba(11,18,16,.85); padding: 6px 10px; }
+.viewctl button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

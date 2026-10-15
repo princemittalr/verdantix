@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header class="top">
@@ -44,6 +44,11 @@
       <span><i class="dot ok"></i>Normal</span><span><i class="dot warn"></i>Attention</span><span><i class="dot crit"></i>Critical</span>
       <label><input type="checkbox" id="showRoute"> Pickup route</label>
       <label><input type="checkbox" id="showHot"> Hotspots</label>
+    </div>
+    <div class="viewctl">
+      <button class="ghost" id="viewBtn" title="Switch between 3D and top-down view">2D</button>
+      <button class="ghost" id="orbitBtn" title="Slowly orbit the campus">⟳ Orbit</button>
+      <button class="ghost" id="homeBtn" title="Back to the whole campus">⌂ Campus</button>
     </div>
     <div class="board" id="board"></div>
     <div class="demo">
@@ -173,6 +178,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

@@ -34,6 +34,54 @@ async function api(path, opts = {}) {
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 
 // ---------------- map ----------------
+const FLOOR_H = 3.6;            // metres per storey
+const M_LAT = 1 / 111320;       // degrees per metre (latitude)
+const mLng = (lat) => 1 / (111320 * Math.cos((lat * Math.PI) / 180));
+
+// Convex hull (monotone chain) of [lng, lat] points.
+function hull(pts) {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo.at(-2), lo.at(-1), q) <= 0) lo.pop(); lo.push(q); }
+  for (const q of p.slice().reverse()) { while (up.length >= 2 && cross(up.at(-2), up.at(-1), q) <= 0) up.pop(); up.push(q); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+// Campus boundary: hull of every mapped feature, pushed out by `pad` metres.
+function campusBoundary(pad = 70) {
+  const pts = [];
+  campus.features.forEach((f) => (f.geometry.type === "Point" ? [f.geometry.coordinates] : f.geometry.coordinates[0]).forEach((c) => pts.push(c)));
+  const h = hull(pts);
+  const cx = h.reduce((a, c) => a + c[0], 0) / h.length, cy = h.reduce((a, c) => a + c[1], 0) / h.length;
+  const ring = h.map(([x, y]) => {
+    const dx = (x - cx) / mLng(cy), dy = (y - cy) / M_LAT, d = Math.hypot(dx, dy) || 1;
+    return [x + (dx / d) * pad * mLng(cy), y + (dy / d) * pad * M_LAT];
+  });
+  return { ring: [...ring, ring[0]], center: [cx, cy] };
+}
+// Each storey as its own slab with a thin gap, so buildings read as real floors in 3D.
+function floorSlabs() {
+  const out = [];
+  campus.features.filter((f) => f.geometry.type === "Polygon" && f.properties.type !== "sports").forEach((f) => {
+    const n = Math.max(f.properties.floors || 1, 1);
+    for (let i = 0; i < n; i++)
+      out.push({ type: "Feature", geometry: f.geometry,
+                 properties: { fid: `${f.properties.id}#${i}`, id: f.properties.id, name: f.properties.name,
+                               base: i * FLOOR_H, top: i * FLOOR_H + FLOOR_H - 0.45, roof: i === n - 1 } });
+  });
+  return { type: "FeatureCollection", features: out };
+}
+// Tall translucent beam over every open alert, visible from across the campus.
+function beaconShape(lng, lat, r = 9, n = 20) {
+  const ring = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (2 * Math.PI * i) / n;
+    ring.push([lng + Math.cos(a) * r * mLng(lat), lat + Math.sin(a) * r * M_LAT]);
+  }
+  return { type: "Polygon", coordinates: [ring] };
+}
+let orbiting = false, is3D = true, campusView = null;
+
 async function initMap() {
   campus = campus || await api("/api/campus");
   const center = [77.4500, 12.6605];
@@ -52,21 +100,53 @@ async function initMap() {
   });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   map.on("load", () => {
-    const xs = [], ys = [];
-    campus.features.forEach((f) => (f.geometry.type === "Point" ? [f.geometry.coordinates] : f.geometry.coordinates[0]).forEach(([x, y]) => { xs.push(x); ys.push(y); }));
-    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 40, bottom: 40, left: 220, right: 20 }, pitch: 50, bearing: -20, duration: 0 });
-    map.setZoom(map.getZoom() + 0.5);
+    // Campus-only view: everything outside the DSU boundary is dimmed and the camera stays on campus.
+    const { ring, center: cc } = campusBoundary(70);
+    const xs = ring.map((c) => c[0]), ys = ring.map((c) => c[1]);
+    const bounds = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
+    const padLng = (bounds[1][0] - bounds[0][0]) * 0.9, padLat = (bounds[1][1] - bounds[0][1]) * 0.9;
+    map.setMaxBounds([[bounds[0][0] - padLng, bounds[0][1] - padLat], [bounds[1][0] + padLng, bounds[1][1] + padLat]]);
+    map.fitBounds(bounds, { padding: { top: 30, bottom: 60, left: 230, right: 20 }, pitch: 0, bearing: -20, duration: 0 });
+    map.setMinZoom(Math.max(map.getZoom() - 0.8, 14));
+    map.jumpTo({ zoom: map.getZoom() + 0.4, pitch: 58 });
+    campusView = { center: map.getCenter(), zoom: map.getZoom(), pitch: 58, bearing: -20 };
+    map.setLight({ anchor: "map", position: [1.4, 215, 35], intensity: 0.45, color: "#ffffff" });
+
+    map.addSource("mask", { type: "geojson", data: { type: "Feature", properties: {},
+      geometry: { type: "Polygon", coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]], ring.slice().reverse()] } } });
+    map.addLayer({ id: "mask", type: "fill", source: "mask", paint: { "fill-color": "#050a08", "fill-opacity": 0.78 } });
+    map.addSource("boundary", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } } });
+    map.addLayer({ id: "boundary-glow", type: "line", source: "boundary", paint: { "line-color": "#4cc79e", "line-width": 10, "line-opacity": 0.18, "line-blur": 6 } });
+    map.addLayer({ id: "boundary", type: "line", source: "boundary", paint: { "line-color": "#4cc79e", "line-width": 1.6, "line-dasharray": [3, 2] } });
+
     map.addSource("campus", { type: "geojson", data: campus, promoteId: "id" });
     map.addLayer({ id: "sports", type: "fill", source: "campus", filter: ["==", ["get", "type"], "sports"],
-                   paint: { "fill-color": "#3fbf7f", "fill-opacity": 0.18, "fill-outline-color": "#3fbf7f" } });
-    map.addLayer({ id: "bld", type: "fill-extrusion", source: "campus",
+                   paint: { "fill-color": "#3fbf7f", "fill-opacity": 0.22, "fill-outline-color": "#7ee2b4" } });
+    map.addLayer({ id: "footprint", type: "line", source: "campus",
                    filter: ["all", ["==", ["geometry-type"], "Polygon"], ["!=", ["get", "type"], "sports"]],
+                   paint: { "line-color": "#e3ece8", "line-width": 1, "line-opacity": 0.5 } });
+    map.addSource("floors", { type: "geojson", data: floorSlabs(), promoteId: "fid" });
+    const statusColor = ["match", ["coalesce", ["feature-state", "status"], "ok"], "crit", COLORS.crit, "warn", COLORS.warn, COLORS.ok];
+    map.addLayer({ id: "bld", type: "fill-extrusion", source: "floors",
                    paint: {
-                     "fill-extrusion-color": ["case", ["boolean", ["feature-state", "sel"], false], "#e6fff4",
-                       ["match", ["coalesce", ["feature-state", "status"], "ok"], "crit", COLORS.crit, "warn", COLORS.warn, COLORS.ok]],
-                     "fill-extrusion-height": ["*", ["max", ["get", "floors"], 1], 3.6],
-                     "fill-extrusion-opacity": 0.82,
+                     "fill-extrusion-color": ["case", ["boolean", ["feature-state", "sel"], false],
+                       ["interpolate", ["linear"], 0.5, 0, statusColor, 1, "#ffffff"],
+                       ["boolean", ["get", "roof"], false], ["interpolate", ["linear"], 0.35, 0, statusColor, 1, "#ffffff"], statusColor],
+                     "fill-extrusion-base": ["get", "base"],
+                     "fill-extrusion-height": ["get", "top"],
+                     "fill-extrusion-opacity": 0.88,
+                     "fill-extrusion-vertical-gradient": true,
                    } });
+    map.addSource("beacons", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "beacons", type: "fill-extrusion", source: "beacons",
+                   paint: { "fill-extrusion-color": ["match", ["get", "severity"], "crit", COLORS.crit, COLORS.warn],
+                            "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": 0, "fill-extrusion-opacity": 0.45 } });
+    let t0 = performance.now();
+    setInterval(() => {  // gentle pulse on the alert beams
+      if (!map.getLayer("beacons")) return;
+      const k = (performance.now() - t0) / 1000;
+      map.setPaintProperty("beacons", "fill-extrusion-opacity", 0.5 + 0.25 * Math.sin(k * 2.2));
+    }, 120);
     map.addLayer({ id: "bld-label", type: "symbol", source: "campus", filter: ["==", ["geometry-type"], "Polygon"],
                    layout: { "text-field": ["get", "name"], "text-size": 12, "text-font": ["Noto Sans Regular"], "symbol-placement": "point" },
                    paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.2 } });
@@ -101,13 +181,45 @@ async function initMap() {
       map.on("mouseenter", l, () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", l, () => (map.getCanvas().style.cursor = ""));
     });
+    map.on("mousedown", () => orbiting && toggleOrbit(false));
+    map.on("touchstart", () => orbiting && toggleOrbit(false));
     if (S) render(S);
   });
 }
 
+function toggleOrbit(on = !orbiting) {
+  orbiting = on;
+  $("#orbitBtn").classList.toggle("on", on);
+  if (!on) { map.stop(); return; }
+  if (!is3D) toggle3D(true);
+  const spin = () => {
+    if (!orbiting) return;
+    map.easeTo({ bearing: map.getBearing() + 40, duration: 8000, easing: (t) => t });
+    map.once("moveend", () => orbiting && spin());
+  };
+  spin();
+}
+function toggle3D(on = !is3D) {
+  is3D = on;
+  $("#viewBtn").textContent = on ? "2D" : "3D";
+  if (!on && orbiting) toggleOrbit(false);
+  map.easeTo({ pitch: on ? 58 : 0, bearing: on ? -20 : 0, duration: 900 });
+}
+function resetView() {
+  if (orbiting) toggleOrbit(false);
+  if (campusView) map.flyTo({ ...campusView, speed: 0.8 });
+}
+
 function updateMap(st) {
   if (!map || !map.getSource("pts")) return;
-  for (const [id, b] of Object.entries(st.buildings)) map.setFeatureState({ source: "campus", id }, { status: b.status, sel: id === selected });
+  const floorsOf = Object.fromEntries(campus.features.map((f) => [f.properties.id, Math.max(f.properties.floors || 1, 1)]));
+  for (const [id, b] of Object.entries(st.buildings)) {
+    map.setFeatureState({ source: "campus", id }, { status: b.status, sel: id === selected });
+    for (let i = 0; i < (floorsOf[id] || 1); i++) map.setFeatureState({ source: "floors", id: `${id}#${i}` }, { status: b.status, sel: id === selected });
+  }
+  const openA = st.alerts.filter((a) => a.status === "open" || a.status === "assigned");
+  map.getSource("beacons")?.setData({ type: "FeatureCollection", features: openA.map((a) => ({
+    type: "Feature", geometry: beaconShape(a.lng, a.lat), properties: { severity: a.severity, h: a.severity === "crit" ? 95 : 60 } })) });
   const pts = campus.features.filter((f) => f.geometry.type === "Point").map((f) => {
     const p = { ...f.properties };
     const bin = st.bins[p.id];
@@ -300,6 +412,9 @@ document.addEventListener("change", async (e) => {
   const r = await api(`/api/orders/${oid}/proof`, { method: "POST", body: fd });
   toast(r.message, 5000);
 });
+$("#viewBtn").onclick = () => toggle3D();
+$("#orbitBtn").onclick = () => toggleOrbit();
+$("#homeBtn").onclick = () => resetView();
 $("#showRoute").onchange = async (e) => {
   map.setLayoutProperty("route", "visibility", e.target.checked ? "visible" : "none");
   if (e.target.checked) {
@@ -569,7 +684,7 @@ async function waitAlert(pred, ms = 9000) {
   }
   return null;
 }
-const overview = () => map && map.flyTo({ center: [77.4495, 12.6600], zoom: 16.3, pitch: 55, bearing: -20, speed: 0.7 });
+const overview = () => map && campusView && map.flyTo({ ...campusView, speed: 0.7 });
 const STEPS = [
   ["Verdantix is a live digital twin of DSU Harohalli. Every building is coloured by its live energy and water status.",
     async () => { await post("/api/scenario/clear"); switchTab("alerts"); overview(); }],
