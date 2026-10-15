@@ -41,7 +41,7 @@ def chat(messages, tools=None, temperature=0.3, max_tokens=4000, only=None):
         try:
             for attempt in range(2):  # one quick retry when the provider is overloaded
                 r = httpx.post(url, json=body, headers={"Authorization": f"Bearer {key()}"}, timeout=40)
-                if r.status_code not in (429, 503) or attempt:
+                if r.status_code not in (429, 503) or attempt or "insufficient_quota" in r.text:
                     break
                 time.sleep(1.5)
             r.raise_for_status()
