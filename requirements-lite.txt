@@ -1,0 +1,15 @@
+# Cloud "lite" backend (Render free, 512 MB): no PyTorch / YOLO / CLIP; photo checks use Gemini vision.
+# Versions match requirements.txt so models.pkl trained on the laptop loads unchanged.
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+scikit-learn==1.5.2
+PyWavelets==1.7.0
+pytz
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+pillow
+imagehash
+reportlab

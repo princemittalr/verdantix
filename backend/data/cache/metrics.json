@@ -1,0 +1,30 @@
+{
+ "occupancy": {
+  "dataset": "UCI Occupancy Detection (held-out test files)",
+  "features": [
+   "Temperature",
+   "Humidity",
+   "Light"
+  ],
+  "accuracy": 0.962,
+  "f1": 0.92,
+  "test_rows": 12417
+ },
+ "leak": {
+  "dataset": "BattLeDIM 2018 L-Town SCADA (14 labelled pipe bursts)",
+  "method": "minimum night flow vs 7-night rolling median",
+  "leak_events": 14,
+  "events_caught": 7,
+  "catch_window_days": 3,
+  "median_delay_days": 0.0,
+  "flagged_nights": 74,
+  "precision": 0.54
+ },
+ "forecast": {
+  "dataset": "BDG2 hourly meters (rescaled), test Nov-Dec",
+  "method": "gradient-boosted trees, day-ahead (features >= 24 h old)",
+  "buildings": 9,
+  "mape_pct": 22.7,
+  "naive_mape_pct": 29.8
+ }
+}

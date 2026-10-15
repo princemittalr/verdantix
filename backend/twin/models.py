@@ -73,6 +73,13 @@ class OccupancyModel:
             "test_rows": int(len(test)),
         }
 
+    def probs(self, rows):
+        """Occupancy probability for many (temp, rh, lux) rows in one call."""
+        if not rows:
+            return []
+        X = pd.DataFrame(rows, columns=OCC_FEATURES)
+        return [float(p) for p in self.model.predict_proba(X)[:, 1]]
+
     def prob(self, temp, rh, lux):
         X = pd.DataFrame([[temp, rh, lux]], columns=OCC_FEATURES)
         return float(self.model.predict_proba(X)[0, 1])

@@ -84,18 +84,20 @@ class Twin:
             col = (b, "elec_kwh")
             self.buildings[col] = self.buildings[col] * (target / max(float(self.buildings[col].sum()), 1.0))
 
-        self.base = {}
-        self.iforest = {}
-        self.forecaster = {}
-        for b in self.bld_ids:
-            e = self.buildings[(b, "elec_kwh")]
-            self.base[(b, "elec")] = Baselines(e)
-            self.base[(b, "water")] = Baselines(self.buildings[(b, "water_l")])
-            self.iforest[b] = EnergyIForest(e)
-            self.forecaster[b] = LoadForecaster(e)
-        self.occupancy = OccupancyModel()
         mapping = json.loads((C.CACHE / "mapping.json").read_text(encoding="utf-8"))
-        self.leak = LeakDetector(self.water, mapping["water"].get("leak_onsets", {}).values())
+        if not self._load_models():
+            self.base = {}
+            self.iforest = {}
+            self.forecaster = {}
+            for b in self.bld_ids:
+                e = self.buildings[(b, "elec_kwh")]
+                self.base[(b, "elec")] = Baselines(e)
+                self.base[(b, "water")] = Baselines(self.buildings[(b, "water_l")])
+                self.iforest[b] = EnergyIForest(e)
+                self.forecaster[b] = LoadForecaster(e)
+            self.occupancy = OccupancyModel()
+            self.leak = LeakDetector(self.water, mapping["water"].get("leak_onsets", {}).values())
+            self._save_models()
         fc = list(self.forecaster.values())
         self.metrics = {"occupancy": self.occupancy.metrics, "leak": self.leak.metrics,
                         "forecast": {"dataset": "BDG2 hourly meters (rescaled), test Nov-Dec",
@@ -122,6 +124,51 @@ class Twin:
         # Live IoT readings (ESP32 etc.) override the replayed data while fresh.
         self.live: dict[tuple, dict] = {}
         self._snap, self._snap_t = None, 0.0
+
+    # ---------- trained-model cache (fast start on small cloud machines) ----------
+    MODELS_VERSION = 3
+
+    def _models_key(self):
+        files = ["buildings.pkl", "rooms.pkl", "water.pkl", "occupancy.pkl", "mapping.json"]
+        return [self.MODELS_VERSION] + [(f, (C.CACHE / f).stat().st_size) for f in files]
+
+    def _load_models(self):
+        import pickle
+        path = C.CACHE / "models.pkl"
+        if not path.exists():
+            return False
+        try:
+            with open(path, "rb") as fh:
+                bundle = pickle.load(fh)
+            if bundle.get("key") != self._models_key():
+                return False
+            self.base, self.iforest, self.forecaster = bundle["base"], bundle["iforest"], bundle["forecaster"]
+            self.occupancy, self.leak = bundle["occupancy"], bundle["leak"]
+            self.leak.water = self.water
+            for b, f in self.forecaster.items():   # forecasters read the live (rescaled) series
+                f.s = self.buildings[(b, "elec_kwh")]
+            print("Loaded trained models from cache/models.pkl")
+            return True
+        except Exception as e:  # version mismatch etc.: retrain
+            print("models.pkl not usable, retraining:", e)
+            return False
+
+    def _save_models(self):
+        import pickle
+        try:
+            leak_water, self.leak.water = self.leak.water, None
+            fc_series = {b: f.s for b, f in self.forecaster.items()}
+            for f in self.forecaster.values():
+                f.s = None
+            with open(C.CACHE / "models.pkl", "wb") as fh:
+                pickle.dump({"key": self._models_key(), "base": self.base, "iforest": self.iforest,
+                             "forecaster": self.forecaster, "occupancy": self.occupancy, "leak": self.leak}, fh)
+        except Exception as e:
+            print("Could not save models.pkl:", e)
+        finally:
+            self.leak.water = leak_water
+            for b, f in self.forecaster.items():
+                f.s = fc_series[b]
 
     # ---------- data access ----------
     def _row(self, frame, sim, year, freq):
@@ -505,6 +552,8 @@ class Twin:
                                       "live": live_kw is not None or live_wl is not None, "_ts": ts}
 
             rrow, _ = self._row(self.rooms, sim, 2019, "15min")
+            occ_in = [[float(np.nan_to_num(rrow[(r, m)])) for m in ("temp_c", "rh", "lux")] for r in self.room_ids]
+            occ = dict(zip(self.room_ids, self.occupancy.probs(occ_in)))
             for r in self.room_ids:
                 v = {m: float(np.nan_to_num(rrow[(r, m)])) for m in ("ac_kw", "light_kw", "plug_kw", "temp_c", "rh", "lux")}
                 for sc in self.scenarios:
@@ -512,7 +561,7 @@ class Twin:
                         v["ac_kw"] += sc["kw"]
                 cam = self.camera_occupancy.get(r)
                 people = cam["people"] if cam and (sim - cam["at"]) < timedelta(minutes=30) else None
-                v["occ_prob"] = round(self.occupancy.prob(v["temp_c"], v["rh"], v["lux"]), 2)
+                v["occ_prob"] = round(occ[r], 2)
                 v["people"] = people
                 st["rooms"][r] = {k: round(x, 2) if isinstance(x, float) else x for k, x in v.items()}
 
@@ -555,10 +604,11 @@ class Twin:
             st["live_sensors"] = len(self.live_sensors())
             return st
 
-    def snapshot_json(self, max_age=1.0):
+    def snapshot_json(self, max_age=None):
         """Serialized state shared by every WebSocket client, recomputed at most once per `max_age` seconds."""
         with self.lock:
             now = time.monotonic()
+            max_age = C.WS_INTERVAL_S * 0.8 if max_age is None else max_age
             if self._snap is None or now - self._snap_t >= max_age:
                 self._snap, self._snap_t = json.dumps(self.state(), default=str), now
             return self._snap

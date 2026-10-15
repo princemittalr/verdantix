@@ -13,7 +13,7 @@ import time
 import numpy as np
 
 from twin.geo import haversine_m
-from vision.detector import phash
+from vision.detector import VisionUnavailable, phash
 
 KIND_TITLE = {"waste": "Waste reported", "water": "Water leak reported", "energy": "Energy waste reported"}
 
@@ -33,7 +33,10 @@ class ReportDesk:
         for r in self.reports:
             if h - r["_hash"] <= 6:
                 return {"ok": False, "check": "duplicate", "message": f"This photo was already reported as {r['id']}."}
-        analysis, emb = self.vision.analyze(img)
+        try:
+            analysis, emb = self.vision.analyze(img)
+        except VisionUnavailable as e:
+            return {"ok": False, "check": "issue", "message": f"{e} Please try again in a minute."}
         clip = analysis["clip"]
         if clip["issue_score"] < 0.5:
             return {"ok": False, "check": "issue", "message": "We couldn't see a waste, water or energy problem in this photo. Try a closer shot.", "clip": clip}

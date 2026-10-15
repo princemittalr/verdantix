@@ -21,7 +21,7 @@ import config as C
 from ai import copilot, local_llm, report
 from twin.engine import Twin
 from twin.hotspots import hotspots
-from vision.detector import Vision
+from vision.detector import Vision, VisionUnavailable
 from vision.reports import ReportDesk
 
 app = FastAPI(title="Verdantix")
@@ -66,7 +66,7 @@ async def ws(sock: WebSocket):
         while True:
             # One shared snapshot for every open dashboard, so ten judges cost the same as one.
             await sock.send_text(await asyncio.to_thread(twin.snapshot_json))
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(C.WS_INTERVAL_S)
     except (WebSocketDisconnect, RuntimeError):
         pass
 
@@ -131,10 +131,10 @@ async def proof(oid: str, file: UploadFile = File(...)):
     o = twin.orders[oid]
     a = twin.alerts[o.alert_id]
     url = _save(data, "proof")
-    if a.kind == "energy":
-        check = await asyncio.to_thread(vision.verify_fixed, _img(data), "energy")
-    else:
+    try:
         check = await asyncio.to_thread(vision.verify_fixed, _img(data), a.kind)
+    except VisionUnavailable as e:
+        raise HTTPException(503, str(e))
     check["image"] = url
     if check["passed"]:
         twin.complete_order(oid, check)
@@ -147,7 +147,10 @@ async def proof(oid: str, file: UploadFile = File(...)):
 async def analyze(file: UploadFile = File(...), camera: str = Form(""), room: str = Form(""), bin: str = Form("")):
     t0 = time.time()
     img = _img(await file.read())
-    result, _ = await asyncio.to_thread(vision.analyze, img)
+    try:
+        result, _ = await asyncio.to_thread(vision.analyze, img)
+    except VisionUnavailable as e:
+        raise HTTPException(503, str(e))
     events = []
     if room:
         twin.observe_people(room, result["people"])

@@ -7,13 +7,33 @@
   running taps, lights on in empty rooms, litter. It also double-checks YOLO
   and verifies "after fixing" proof photos.
 """
+import base64
+import io
+import json
+import re
 import threading
+import time
 
 import imagehash
 import numpy as np
 from PIL import Image
 
+import config as C
 from config import WEIGHTS
+
+
+class VisionUnavailable(Exception):
+    """The photo could not be checked (e.g. cloud vision API down or rate-limited)."""
+
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+LITE_PROMPT = """You are the camera sensor of a university campus sustainability digital twin.
+Look at the photo and reply with ONLY this JSON (no markdown):
+{"waste": 0-1, "water": 0-1, "energy": 0-1, "clean": 0-1, "people": <int>, "bin": "empty"|"half"|"overflow"|"none", "labels": ["<short description>", "..."]}
+waste = overflowing bin, litter or dumped garbage. water = leaking pipe, puddle, tap left running.
+energy = lights, fans, AC or projector switched on in an empty room. clean = none of these problems.
+The four scores are probabilities that sum to 1. people = number of people visible. bin = fill level of the main
+garbage bin if one is visible, else "none". labels = up to 3 short descriptions of what you see, most relevant first."""
 
 ISSUE_PROMPTS = {
     "waste": ["a photo of an overflowing garbage bin", "a photo of litter and trash scattered on the ground",
@@ -33,7 +53,75 @@ class Vision:
     def __init__(self):
         self._lock = threading.Lock()
         self._yolo = self._bins = self._clip = None
-        self.status = {"yolo": "not loaded", "bins": "not loaded", "clip": "not loaded"}
+        self.lite = C.LITE
+        self._last_call = 0.0
+        if self.lite:
+            self.status = {"yolo": "off (cloud lite mode)", "bins": "off (cloud lite mode)",
+                           "clip": f"{C.VISION_MODEL} vision (cloud lite mode)"}
+        else:
+            self.status = {"yolo": "not loaded", "bins": "not loaded", "clip": "not loaded"}
+
+    # ----- cloud lite mode: one Gemini vision call replaces YOLO + CLIP -----
+    @staticmethod
+    def _cheap_embedding(img):
+        """Tiny colour-layout vector for the 'same problem reported nearby' check (stands in for CLIP)."""
+        a = np.asarray(img.convert("RGB").resize((12, 12)), dtype=np.float32).ravel()
+        a -= a.mean()
+        n = np.linalg.norm(a)
+        return a / n if n else a
+
+    def _gemini(self, img):
+        import httpx
+        if not C.GEMINI_API_KEY:
+            raise VisionUnavailable("Photo check unavailable: no GEMINI_API_KEY on the server.")
+        small = img.convert("RGB").copy()
+        small.thumbnail((768, 768))
+        buf = io.BytesIO()
+        small.save(buf, "JPEG", quality=85)
+        url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+        body = {"model": C.VISION_MODEL, "temperature": 0, "max_tokens": 1500,
+                "messages": [{"role": "user", "content": [{"type": "text", "text": LITE_PROMPT},
+                                                          {"type": "image_url", "image_url": {"url": url}}]}]}
+        with self._lock:  # free tier: keep >= 4 s between calls
+            wait = 4 - (time.time() - self._last_call)
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                for attempt in range(2):
+                    r = httpx.post(GEMINI_URL, json=body, timeout=40,
+                                   headers={"Authorization": f"Bearer {C.GEMINI_API_KEY}"})
+                    if r.status_code not in (429, 503) or attempt:
+                        break
+                    time.sleep(3)
+            except Exception as e:
+                raise VisionUnavailable(f"Photo check unavailable ({type(e).__name__}).")
+            finally:
+                self._last_call = time.time()
+        if r.status_code != 200:
+            raise VisionUnavailable(f"Photo check unavailable (vision API {r.status_code}).")
+        text = r.json()["choices"][0]["message"].get("content") or ""
+        m = re.search(r"\{.*\}", text, re.S)
+        try:
+            d = json.loads(m.group(0)) if m else {}
+        except json.JSONDecodeError:
+            d = {}
+        scores = {k: max(float(d.get(k, 0) or 0), 0.0) for k in ("waste", "water", "energy", "clean")}
+        total = sum(scores.values())
+        if not total:
+            raise VisionUnavailable("Photo check returned no answer.")
+        scores = {k: v / total for k, v in scores.items()}
+        issue = max(("waste", "water", "energy"), key=scores.get)
+        labels = [str(x)[:60] for x in (d.get("labels") or [])][:3] or [issue]
+        clip = {"scores": {k: round(v, 3) for k, v in scores.items()}, "issue": issue,
+                "issue_score": round(scores[issue], 3),
+                "top": [{"label": l, "p": round(scores[issue] if i == 0 else 0, 3)} for i, l in enumerate(labels)]}
+        b = str(d.get("bin", "none")).lower()
+        bin_ = {"label": b.capitalize(), "conf": 0.8, "fill": FILL_FROM_CLASS[b]} if b in ("empty", "half", "overflow") else None
+        try:
+            people = int(d.get("people") or 0)
+        except (TypeError, ValueError):
+            people = 0
+        return {"people": people, "objects": [], "bin": bin_, "clip": clip, "size": small.size}
 
     # Models load lazily so the API starts instantly.
     def yolo(self):
@@ -109,6 +197,9 @@ class Vision:
         return out
 
     def analyze(self, img):
+        if self.lite:
+            out = self._gemini(img)
+            return out, self._cheap_embedding(img)
         img = img.convert("RGB")
         img.thumbnail((960, 960))
         det = self.detect(img)
@@ -118,8 +209,14 @@ class Vision:
     def verify_fixed(self, img, kind):
         """Proof photo passes when the original issue is no longer visible."""
         img = img.convert("RGB")
+        kind = kind if kind in ISSUE_PROMPTS else "waste"
+        if self.lite:
+            r = self._gemini(img)
+            score = r["clip"]["scores"].get(kind, 0)
+            overflow = r["bin"] and r["bin"]["fill"] >= 100 and kind == "waste"
+            return {"passed": score < 0.35 and not overflow, "issue_score": round(score, 3), "clip": r["clip"], "bin": r["bin"]}
         clip, _ = self.classify(img)
-        score = clip["scores"].get(kind if kind in ISSUE_PROMPTS else "waste", 0)
+        score = clip["scores"].get(kind, 0)
         det = self.detect(img) if kind == "waste" else {"bin": None}
         overflow = det["bin"] and det["bin"]["fill"] >= 100
         return {"passed": score < 0.35 and not overflow, "issue_score": round(score, 3), "clip": clip, "bin": det["bin"]}

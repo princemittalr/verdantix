@@ -73,5 +73,12 @@ CAPEX = {
 }
 LIGHTING_HOURS_YEAR = 3000
 
+# Cloud "lite" mode: no PyTorch (YOLO/CLIP); photos are checked by Gemini vision instead.
+# Turns on automatically when torch isn't installed, or with VERDANTIX_LITE=1.
+import importlib.util as _ilu
+LITE = os.getenv("VERDANTIX_LITE", "") == "1" or _ilu.find_spec("torch") is None
+WS_INTERVAL_S = float(os.getenv("WS_INTERVAL", "3" if LITE else "1.5"))
+VISION_MODEL = os.getenv("VISION_MODEL", GEMINI_MODEL)
+
 # Optional shared secret for the IoT ingest API (set in .env for a public deployment).
 INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")

@@ -74,6 +74,12 @@ venv\Scripts\python.exe scripts\deploy_hf.py <your-hf-username>
 ```
 The script creates a Docker Space, uploads code, weights and `backend/data/cache` (which git ignores), and stores the API keys from `.env` as Space secrets. The live link is `https://<username>-verdantix.hf.space` (https, so phone camera and GPS work).
 
+## Always-on cloud deployment (free)
+
+- **Frontend:** Vercel, root directory `frontend`. `frontend/config.js` sets `window.VX_API` to the backend URL.
+- **Backend:** Render free web service from `render.yaml` in **lite mode**: same twin, models, alerts, copilot and reports, but no PyTorch, so YOLO/CLIP are replaced by Gemini vision for photo checks (fits in 512 MB). Trained models load from `backend/data/cache/models.pkl` (written on first local run), so start-up takes seconds. A free uptime pinger (cron-job.org, every 10 min on `/api/campus`) keeps it awake.
+- **Full mode** (YOLO11n + fine-tuned bin model + CLIP on CPU) runs locally, or on any VM with `scripts/setup_vm.sh`.
+
 ## Real sensors
 
 ```bash

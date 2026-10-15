@@ -1,0 +1,149 @@
+{
+ "buildings": {
+  "soe-a-block": {
+   "source": "Wolf_education_Ursula",
+   "source_sqm": 13998.0,
+   "dsu_gross_m2": 35142,
+   "scale": 2.511,
+   "water_source": "metered"
+  },
+  "soe-b-block": {
+   "source": "Wolf_education_Loren",
+   "source_sqm": 12190.0,
+   "dsu_gross_m2": 42456,
+   "scale": 3.483,
+   "water_source": "metered"
+  },
+  "cdsimer-block-a": {
+   "source": "Panther_education_Genevieve",
+   "source_sqm": 12159.6,
+   "dsu_gross_m2": 32052,
+   "scale": 2.636,
+   "water_source": "metered"
+  },
+  "cdsimer-hospital": {
+   "source": "Panther_education_Jerome",
+   "source_sqm": 11974.0,
+   "dsu_gross_m2": 44338,
+   "scale": 3.703,
+   "water_source": "metered"
+  },
+  "boys-hostel": {
+   "source": "Panther_lodging_Cora",
+   "source_sqm": 17433.0,
+   "dsu_gross_m2": 24264,
+   "scale": 1.392,
+   "water_source": "metered"
+  },
+  "girls-hostel": {
+   "source": "Wolf_education_Miguel",
+   "source_sqm": 5403.0,
+   "dsu_gross_m2": 5328,
+   "scale": 0.986,
+   "water_source": "metered"
+  },
+  "hostel-mess": {
+   "source": "Wolf_retail_Harriett",
+   "source_sqm": 4108.0,
+   "dsu_gross_m2": 4006,
+   "scale": 0.975,
+   "water_source": "metered"
+  },
+  "hostel-parking": {
+   "source": "Panther_other_Tyrone",
+   "source_sqm": 889.0,
+   "dsu_gross_m2": 4533,
+   "scale": 5.099,
+   "water_source": "metered"
+  },
+  "soe-food-court": {
+   "source": "Wolf_education_Roderick",
+   "source_sqm": 818.0,
+   "dsu_gross_m2": 1410,
+   "scale": 1.724,
+   "water_source": "metered"
+  }
+ },
+ "rooms": {
+  "soe-a-block/F2-Z1": {
+   "source": "CU-BEMS 2019 Floor2 z1"
+  },
+  "soe-a-block/F2-Z2": {
+   "source": "CU-BEMS 2019 Floor2 z2"
+  },
+  "soe-a-block/F2-Z3": {
+   "source": "CU-BEMS 2019 Floor2 z3"
+  },
+  "soe-a-block/F2-Z4": {
+   "source": "CU-BEMS 2019 Floor2 z4"
+  },
+  "soe-a-block/F3-Z1": {
+   "source": "CU-BEMS 2019 Floor3 z1"
+  },
+  "soe-a-block/F3-Z2": {
+   "source": "CU-BEMS 2019 Floor3 z2"
+  },
+  "soe-a-block/F3-Z3": {
+   "source": "CU-BEMS 2019 Floor3 z3"
+  },
+  "soe-a-block/F3-Z4": {
+   "source": "CU-BEMS 2019 Floor3 z4"
+  },
+  "soe-a-block/F3-Z5": {
+   "source": "CU-BEMS 2019 Floor3 z5"
+  },
+  "soe-a-block/F4-Z1": {
+   "source": "CU-BEMS 2019 Floor4 z1"
+  },
+  "soe-a-block/F4-Z2": {
+   "source": "CU-BEMS 2019 Floor4 z2"
+  },
+  "soe-a-block/F4-Z3": {
+   "source": "CU-BEMS 2019 Floor4 z3"
+  },
+  "soe-a-block/F4-Z4": {
+   "source": "CU-BEMS 2019 Floor4 z4"
+  },
+  "soe-a-block/F4-Z5": {
+   "source": "CU-BEMS 2019 Floor4 z5"
+  }
+ },
+ "occupancy": {
+  "source": "UCI Occupancy Detection",
+  "rows": 20560,
+  "splits": [
+   "datatest",
+   "datatest2",
+   "datatraining"
+  ]
+ },
+ "water": {
+  "leak_onsets": {
+   "p31": "2018-06-29 01:35:00",
+   "p158": "2018-10-06 02:35:00",
+   "p183": "2018-08-07 02:35:00",
+   "p232": "2018-01-31 03:45:00",
+   "p257": "2018-01-09 00:30:00",
+   "p369": "2018-10-26 02:05:00",
+   "p427": "2018-02-16 04:15:00",
+   "p461": "2018-01-23 23:55:00",
+   "p538": "2018-05-18 08:35:00",
+   "p628": "2018-05-02 18:50:00",
+   "p654": "2018-07-07 09:10:00",
+   "p673": "2018-03-05 15:45:00",
+   "p810": "2018-07-30 18:40:00",
+   "p866": "2018-06-01 09:05:00"
+  },
+  "source": "BattLeDIM 2018 L-Town SCADA",
+  "pressure_sensors": [
+   "n1",
+   "n4",
+   "n31",
+   "n54",
+   "n105",
+   "n114"
+  ],
+  "leak_rows": 101632,
+  "rows": 105120
+ }
+}

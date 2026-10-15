@@ -1,0 +1,23 @@
+# Render Blueprint: free cloud backend for Verdantix (lite mode).
+services:
+  - type: web
+    name: verdantix-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements-lite.txt
+    startCommand: python -m uvicorn app:app --app-dir backend --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/campus
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: VERDANTIX_LITE
+        value: "1"
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

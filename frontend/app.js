@@ -27,7 +27,7 @@ function toast(msg, ms = 3500) {
 async function api(path, opts = {}) {
   let r;
   try { r = await fetch(API + path, opts); }
-  catch { throw new Error(API ? "the live twin backend is offline (laptop server or tunnel not running)" : "server not reachable"); }
+  catch { throw new Error(API ? "the live twin backend isn't reachable yet" : "server not reachable"); }
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.headers.get("content-type")?.includes("json") ? r.json() : r;
 }
@@ -35,7 +35,7 @@ const post = (path, body) => api(path, { method: "POST", headers: { "Content-Typ
 
 // ---------------- map ----------------
 async function initMap() {
-  campus = await api("/api/campus");
+  campus = campus || await api("/api/campus");
   const center = [77.4500, 12.6605];
   map = new maplibregl.Map({
     container: "map",
@@ -619,10 +619,14 @@ $("#capStop").onclick = stopAuto;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && auto) stopAuto(); if (e.key === "ArrowRight" && auto) runStep(auto.i + 1); });
 
 // ---------------- boot ----------------
+let booted = false;
 async function boot() {
+  if (booted) return;
   $("#pdfLink").href = API + "/api/report/weekly.pdf";
-  await initMap();
+  if (!campus) campus = await api("/api/campus");
   const st = await api("/api/state");
+  booted = true;
+  await initMap();
   const blds = Object.entries(st.buildings);
   $("#bldSelect").innerHTML = blds.map(([id, b]) => `<option value="${id}">${b.name}</option>`).join("");
   $("#vRoom").innerHTML += Object.keys(st.rooms).map((r) => `<option value="${r}">${r.split("/")[1]}</option>`).join("");
@@ -643,4 +647,11 @@ function connect() {
   ws.onmessage = (e) => render(JSON.parse(e.data));
   ws.onclose = () => setTimeout(connect, 2000);
 }
-boot().catch((e) => toast(`Startup failed: ${e.message}`, 8000));
+// The free cloud backend may be asleep: keep retrying for up to ~3 minutes while it wakes up.
+(async function start(tries = 0) {
+  try { await boot(); }
+  catch (e) {
+    if (tries < 36) { toast(`Waking up the live twin… (${e.message})`, 5200); setTimeout(() => start(tries + 1), 5000); }
+    else toast(`Startup failed: ${e.message}`, 10000);
+  }
+})();

@@ -4,7 +4,7 @@ __pycache__/
 .env
 datasets/
 runs/
-backend/data/cache/
+# backend/data/cache/ is committed so the cloud backend can start (prepared open data + trained models)
 backend/uploads/
 *.log
 node_modules/

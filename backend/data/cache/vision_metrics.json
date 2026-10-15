@@ -1,0 +1,13 @@
+{
+ "model": "yolo11n fine-tuned",
+ "dataset": "Roboflow garbage_fill_level v2 (CC BY 4.0)",
+ "epochs": 25,
+ "imgsz": 416,
+ "test_map50": 0.94,
+ "test_map50_95": 0.706,
+ "per_class_map50": {
+  "Empty": 0.995,
+  "Half": 0.909,
+  "Overflow": 0.915
+ }
+}
