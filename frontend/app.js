@@ -450,7 +450,7 @@ $("#aboutBtn").onclick = async () => {
     <p class="sub">Rooms: CU-BEMS 2019 (Chulalongkorn). Water network: BattLeDIM 2018 L-Town. Occupancy: UCI. Bins: Roboflow garbage_fill_level (CC BY 4.0).</p>
     <h3>Assumptions</h3>
     <table>${Object.entries(a.assumptions).map(([k, v]) => `<tr><td>${k}</td><td>${typeof v === "object" ? JSON.stringify(v) : v}</td></tr>`).join("")}</table>
-    <p class="sub">GenAI: ${a.llm.gemini ? "Gemini ✓" : "Gemini ✗"} · ${a.llm.groq ? "Groq ✓" : "Groq ✗"} · offline rule-based fallback always on.</p>`;
+    <p class="sub">GenAI: ${Object.entries(a.llm).map(([k, v]) => `${k} ${v ? "✓" : "✗"}`).join(" · ")} · offline rule-based fallback always on.</p>`;
   $("#about").showModal();
 };
 

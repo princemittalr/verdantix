@@ -4,7 +4,7 @@ The model never invents numbers: every figure comes from a tool result, and
 alerts are cited by ID. Without a reachable LLM, a rule-based answer is
 built from the same tools so the demo never breaks.
 """
-from ai.llm import LLMUnavailable, run_tools
+from ai.llm import PROVIDERS, LLMUnavailable, run_tools
 
 SYSTEM = """You are EcoTwin, the sustainability copilot for Dayananda Sagar University's Harohalli campus digital twin.
 Facilities managers ask you what is wasting energy, water or resources and what to do about it.
@@ -87,8 +87,8 @@ def ask(twin, question, history=None):
     handlers = make_handlers(twin)
     base = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": question}]
     errors = []
-    # Each attempt runs the whole tool conversation on one provider: Gemini first, then Groq.
-    for first in (None, "groq"):
+    # Each attempt runs the whole tool conversation on one provider, in order: Gemini, OpenAI, Groq.
+    for first in [name for name, _, key, _ in PROVIDERS if key()]:
         try:
             provider, text, log = run_tools(list(base), TOOLS, handlers, provider=first)
             return {"answer": text, "provider": provider, "tools": log}
