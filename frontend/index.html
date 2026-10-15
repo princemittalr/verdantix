@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <header class="top">
@@ -60,6 +60,7 @@
       <button data-tab="whatif">What-if</button>
       <button data-tab="report">Report</button>
       <button data-tab="students">Students</button>
+      <button data-tab="tour">360° Tour</button>
     </nav>
 
     <div class="tab on" id="tab-alerts">
@@ -134,6 +135,11 @@
       <h3>Recent reports</h3>
       <div id="repList" class="list"></div>
     </div>
+    <div class="tab" id="tab-tour">
+      <div class="sub">DSU's official 360° virtual tour of the Harohalli campus. Walk the real buildings the twin models.</div>
+      <div class="tourframe"><iframe id="tourFrame" title="DSU 360 degree virtual tour" allowfullscreen loading="lazy"></iframe></div>
+      <a class="btnlink" href="https://www.dsu.edu.in/virtual-tour/" target="_blank" rel="noopener">Open the tour full screen ↗</a>
+    </div>
   </aside>
 </main>
 
@@ -142,6 +148,6 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

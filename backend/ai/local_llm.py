@@ -27,7 +27,7 @@ def _load():
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         tok = AutoTokenizer.from_pretrained(C.LOCAL_LLM, local_files_only=True)
-        model = AutoModelForCausalLM.from_pretrained(C.LOCAL_LLM, local_files_only=True, torch_dtype=torch.float32).eval()
+        model = AutoModelForCausalLM.from_pretrained(C.LOCAL_LLM, local_files_only=True, dtype=torch.float32).eval()
         _model = (tok, model)
     return _model
 
@@ -37,7 +37,7 @@ def generate(system, user, max_new_tokens=350):
     with _lock:
         tok, model = _load()
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        ids = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt")
+        enc = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True)
         with torch.no_grad():
-            out = model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False, repetition_penalty=1.05)
-        return tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True).strip()
+            out = model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False, repetition_penalty=1.05)
+        return tok.decode(out[0, enc["input_ids"].shape[1]:], skip_special_tokens=True).strip()

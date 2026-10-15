@@ -215,6 +215,7 @@ function renderBuilding(st) {
 function switchTab(name) {
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   $$(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${name}`));
+  if (name === "tour" && !$("#tourFrame").src) $("#tourFrame").src = "https://www.dsu.edu.in/virtual-tour/";
 }
 $("#tabs").addEventListener("click", (e) => e.target.dataset.tab && switchTab(e.target.dataset.tab));
 $("#speedSeg").addEventListener("click", async (e) => {
