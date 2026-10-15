@@ -6,8 +6,10 @@ demo scenarios) and turns rule + ML detections into alerts with rupee and CO2
 impact. Alerts become facilities work orders that close only with proof.
 """
 import itertools
+import json
 import math
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
@@ -17,7 +19,7 @@ import pandas as pd
 import config as C
 from twin.clock import SimClock, to_dataset_time
 from twin.geo import Campus, haversine_m
-from twin.models import Baselines, EnergyIForest, LeakDetector, OccupancyModel, save_metrics
+from twin.models import Baselines, EnergyIForest, LeakDetector, LoadForecaster, OccupancyModel, save_metrics
 
 TEAM = {"water": "Plumbing", "energy": "Electrical", "waste": "Housekeeping", "resource": "Facilities"}
 # Pressure sensors stand in for the campus water zones.
@@ -84,15 +86,23 @@ class Twin:
 
         self.base = {}
         self.iforest = {}
+        self.forecaster = {}
         for b in self.bld_ids:
             e = self.buildings[(b, "elec_kwh")]
             self.base[(b, "elec")] = Baselines(e)
             self.base[(b, "water")] = Baselines(self.buildings[(b, "water_l")])
             self.iforest[b] = EnergyIForest(e)
+            self.forecaster[b] = LoadForecaster(e)
         self.occupancy = OccupancyModel()
-        mapping = __import__("json").loads((C.CACHE / "mapping.json").read_text(encoding="utf-8"))
+        mapping = json.loads((C.CACHE / "mapping.json").read_text(encoding="utf-8"))
         self.leak = LeakDetector(self.water, mapping["water"].get("leak_onsets", {}).values())
-        self.metrics = {"occupancy": self.occupancy.metrics, "leak": self.leak.metrics}
+        fc = list(self.forecaster.values())
+        self.metrics = {"occupancy": self.occupancy.metrics, "leak": self.leak.metrics,
+                        "forecast": {"dataset": "BDG2 hourly meters (rescaled), test Nov-Dec",
+                                     "method": "gradient-boosted trees, day-ahead (features >= 24 h old)",
+                                     "buildings": len(fc),
+                                     "mape_pct": round(float(np.mean([f.mape for f in fc])), 1),
+                                     "naive_mape_pct": round(float(np.mean([f.mape_naive for f in fc])), 1)}}
         save_metrics(self.metrics)
 
         self.alerts: dict[str, Alert] = {}
@@ -104,6 +114,14 @@ class Twin:
         self.bin_pickups = [7, 15]
         self.events: list[dict] = []                  # history for hotspots / reports
         self._ids = itertools.count(1)
+        # Water tanks: simulated level + float-switch pump, driven by the fed buildings' demand.
+        self.tanks = {t: {"level_kl": 0.6 * cfg["capacity_kl"], "pump": False, "at": None, "overflow_lph": 0.0,
+                          "inflow_lph": 0.0, "demand_lph": 0.0, "peak_pump_min": 0.0, "day": None}
+                      for t, cfg in C.TANKS.items() if t in self.campus.features}
+        self._demand_memo = {}
+        # Live IoT readings (ESP32 etc.) override the replayed data while fresh.
+        self.live: dict[tuple, dict] = {}
+        self._snap, self._snap_t = None, 0.0
 
     # ---------- data access ----------
     def _row(self, frame, sim, year, freq):
@@ -116,8 +134,16 @@ class Twin:
         s = self.buildings[b].loc[t - pd.Timedelta(hours=hours - 1): t]
         base = [self.base[(b, "elec")].expected(ts) for ts in s.index]
         stamps = [(sim - timedelta(hours=len(s) - 1 - i)).strftime("%H:00") for i in range(len(s))]
+        fc = self.forecaster[b].forecast(t, 24)
+        peak_i = int(np.argmax(fc))
         return {"t": stamps, "kwh": s["elec_kwh"].round(1).tolist(), "baseline": [round(x, 1) for x in base],
-                "water_l": s["water_l"].round(0).tolist()}
+                "water_l": s["water_l"].round(0).tolist(),
+                "t_fc": [(sim + timedelta(hours=i + 1)).strftime("%H:00") for i in range(len(fc))],
+                "forecast": [round(float(x), 1) for x in fc],
+                "forecast_kwh_24h": round(float(fc.sum())),
+                "forecast_peak_kw": round(float(fc[peak_i]), 1),
+                "forecast_peak_at": (sim + timedelta(hours=peak_i + 1)).strftime("%a %H:00"),
+                "forecast_mape_pct": round(self.forecaster[b].mape, 1)}
 
     # ---------- live evidence ----------
     def add_scenario(self, kind, target=None):
@@ -132,9 +158,130 @@ class Twin:
             elif kind == "bin_overflow":
                 target = target or "bin-foodcourt-1"
                 self.bin_obs[target] = {"fill": 100, "at": sim, "source": "demo-scenario"}
+            elif kind == "tank_overflow":
+                target = target or next(iter(self.tanks), None)
+                self.scenarios.append({"kind": "tank_overflow", "target": target, "start": sim})
+                if target in self.tanks:  # start near the top so the overflow shows within a minute
+                    t = self.tanks[target]
+                    t["level_kl"] = max(t["level_kl"], 0.985 * C.TANKS[target]["capacity_kl"])
             elif kind == "night":
                 self.clock.jump_to(sim.replace(hour=2, minute=0) + timedelta(days=1 if sim.hour >= 2 else 0))
+            elif kind == "morning":
+                self.clock.jump_to(sim.replace(hour=9, minute=0) + timedelta(days=1 if sim.hour >= 9 else 0))
             return {"kind": kind, "target": target}
+
+    def clear_demo(self):
+        """Remove injected scenarios and close the alerts they raised, so a demo can restart cleanly."""
+        with self.lock:
+            self.scenarios.clear()
+            for b in [b for b, o in self.bin_obs.items() if o["source"] == "demo-scenario"]:
+                self.bin_obs.pop(b)
+                self.bin_collected[b] = self.clock.now()
+            n = 0
+            for a in self.alerts.values():
+                if a.source == "demo-scenario" and a.status in ("open", "assigned"):
+                    a.status, n = "self-cleared", n + 1
+                    if a.work_order and self.orders[a.work_order].status != "done":
+                        self.orders[a.work_order].status = "cancelled"
+            self._snap = None
+            return n
+
+    # ---------- live IoT ingest ----------
+    LIVE_FRESH_S = 120
+
+    def ingest(self, sensor, asset, metric, value):
+        """One reading from a real sensor. Building power/water and tank level override the replay while fresh."""
+        value = float(value)
+        with self.lock:
+            if metric == "bin_fill":
+                self.observe_bin(asset, max(0.0, min(value, 100.0)), "iot")
+            elif metric == "people":
+                self.observe_people(asset, int(value))
+            elif metric in ("power_kw", "water_lph"):
+                if asset not in self.bld_ids:
+                    raise KeyError(f"unknown building {asset}")
+            elif metric == "tank_level_pct":
+                if asset not in self.tanks:
+                    raise KeyError(f"unknown tank {asset}")
+            else:
+                raise KeyError(f"unknown metric {metric}")
+            self.live[(asset, metric)] = {"sensor": sensor, "value": value, "t": time.time()}
+            return {"ok": True, "asset": asset, "metric": metric, "value": value}
+
+    def _live(self, asset, metric):
+        r = self.live.get((asset, metric))
+        return r["value"] if r and time.time() - r["t"] < self.LIVE_FRESH_S else None
+
+    def live_sensors(self):
+        now = time.time()
+        return [{"asset": a, "metric": m, "sensor": r["sensor"], "value": r["value"], "age_s": round(now - r["t"])}
+                for (a, m), r in self.live.items() if now - r["t"] < 3600]
+
+    # ---------- water tanks ----------
+    @staticmethod
+    def is_peak(hour):
+        return any(a <= hour < b for a, b in C.TOD_PEAK_HOURS)
+
+    def _tank_demand(self, tid, when):
+        key = (tid, when.replace(minute=0, second=0, microsecond=0))
+        if key not in self._demand_memo:
+            if len(self._demand_memo) > 2000:
+                self._demand_memo.clear()
+            row, _ = self._row(self.buildings, when, 2017, "h")
+            self._demand_memo[key] = sum(float(row[(b, "water_l")]) for b in C.TANKS[tid]["feeds"] if b in self.bld_ids)
+        extra = sum(sc["lph"] for sc in self.scenarios if sc["kind"] == "leak" and sc["target"] in C.TANKS[tid]["feeds"])
+        return self._demand_memo[key] + extra
+
+    def _step_tanks(self, sim):
+        for tid, t in self.tanks.items():
+            cfg = C.TANKS[tid]
+            cap = cfg["capacity_kl"]
+            if t["at"] is None or sim < t["at"] or sim - t["at"] > timedelta(hours=48):
+                t.update(at=sim, day=sim.date(), peak_pump_min=0.0, overflow_lph=0.0)
+                t["demand_lph"] = self._tank_demand(tid, sim)
+                continue
+            stuck = any(sc["kind"] == "tank_overflow" and sc["target"] == tid for sc in self.scenarios)
+            while t["at"] < sim:
+                dt = min(timedelta(minutes=10), sim - t["at"])
+                hrs = dt.total_seconds() / 3600
+                demand = self._tank_demand(tid, t["at"])
+                pct = 100 * t["level_kl"] / cap
+                if stuck:
+                    t["pump"] = True           # float switch failed: pump never stops
+                elif pct < C.PUMP_ON_PCT:
+                    t["pump"] = True
+                elif pct > C.PUMP_OFF_PCT:
+                    t["pump"] = False
+                inflow = cfg["pump_lph"] if t["pump"] else 0.0
+                level = t["level_kl"] + (inflow - demand) * hrs / 1000
+                overflow = 0.0
+                if level > cap:
+                    overflow = (level - cap) * 1000 / hrs if hrs else 0.0
+                    level = cap
+                if t["at"].date() != t["day"]:
+                    t["day"], t["peak_pump_min"] = t["at"].date(), 0.0
+                if t["pump"] and self.is_peak(t["at"].hour):
+                    t["peak_pump_min"] += hrs * 60
+                t.update(level_kl=max(level, 0.0), overflow_lph=overflow, inflow_lph=inflow, demand_lph=demand)
+                t["at"] += dt
+            lv = self._live(tid, "tank_level_pct")
+            if lv is not None:
+                t["level_kl"] = cap * max(0.0, min(lv, 100.0)) / 100
+
+    def tank_state(self):
+        out = {}
+        for tid, t in self.tanks.items():
+            cfg = C.TANKS[tid]
+            lng, lat = self.campus.location(tid)
+            pct = 100 * t["level_kl"] / cfg["capacity_kl"]
+            out[tid] = {"name": self.campus.features[tid]["properties"]["name"], "level_pct": round(pct),
+                        "level_kl": round(t["level_kl"], 1), "capacity_kl": cfg["capacity_kl"], "pump_on": t["pump"],
+                        "inflow_lph": round(t["inflow_lph"]), "demand_lph": round(t["demand_lph"]),
+                        "overflow_lph": round(t["overflow_lph"]), "peak_pump_min_today": round(t["peak_pump_min"]),
+                        "feeds": cfg["feeds"], "live": self._live(tid, "tank_level_pct") is not None,
+                        "lng": lng, "lat": lat,
+                        "status": "crit" if t["overflow_lph"] > 0 else "warn" if pct < 15 or pct > 98 else "ok"}
+        return out
 
     def observe_people(self, room, people):
         with self.lock:
@@ -190,9 +337,26 @@ class Twin:
             route.append(nxt)
             pos = (bins[nxt]["lng"], bins[nxt]["lat"])
             todo.remove(nxt)
-        coords = [self.campus.location("meter-main-inlet")] + [[bins[b]["lng"], bins[b]["lat"]] for b in route]
-        dist = sum(haversine_m(*a, *b) for a, b in zip(coords, coords[1:]))
-        return {"stops": route, "coords": coords, "distance_m": round(dist)}
+        depot = list(self.campus.location("meter-main-inlet"))
+        loc = {b: [bins[b]["lng"], bins[b]["lat"]] for b in route}
+
+        def length(order):
+            pts = [depot] + [loc[b] for b in order]
+            return sum(haversine_m(*a, *b) for a, b in zip(pts, pts[1:]))
+
+        greedy = length(route)
+        improved = True
+        while improved:  # 2-opt: reverse any segment that shortens the walk
+            improved = False
+            for i in range(len(route) - 1):
+                for k in range(i + 1, len(route)):
+                    cand = route[:i] + route[i:k + 1][::-1] + route[k + 1:]
+                    if length(cand) < length(route) - 0.5:
+                        route, improved = cand, True
+        coords = [depot] + [loc[b] for b in route]
+        dist = length(route)
+        return {"stops": route, "coords": coords, "distance_m": round(dist), "greedy_m": round(greedy),
+                "method": "nearest neighbour + 2-opt"}
 
     # ---------- alerts ----------
     def _raise(self, kind, rule, asset, title, detail, severity, source, inr_day, co2_day, evidence, sim):
@@ -214,9 +378,10 @@ class Twin:
         self.events.append({"kind": kind, "asset": asset, "lng": lng, "lat": lat, "at": stamp, "rule": rule})
         return a
 
-    def _clear(self, kind, rule, asset):
+    def _clear(self, kind, rule, asset=None):
         for a in self.alerts.values():
-            if a.kind == kind and a.rule == rule and a.asset == asset and a.status == "open" and a.source == "sensor-ml":
+            if a.kind == kind and a.rule == rule and (asset is None or a.asset == asset) \
+                    and a.status == "open" and a.source == "sensor-ml":
                 a.status = "self-cleared"
 
     def _detect(self, sim, state):
@@ -246,6 +411,8 @@ class Twin:
                             f"{s['water_lph']:.0f} L/h at {sim:%H:%M}, normal is {wb.expected(ts):.0f} L/h. Likely leak or running tap.",
                             "crit", "sensor-ml", kl_day * C.WATER_INR_PER_KL, kl_day * C.WATER_KG_CO2_PER_KL,
                             {"lph": round(s["water_lph"]), "expected_lph": round(wb.expected(ts))}, sim)
+            elif sim.hour >= 6 and s["water_lph"] < wb.expected(ts) * 1.5:
+                self._clear("water", "night-flow", b)
 
         # Rooms: AC / lights running with nobody there (camera or occupancy model) or after hours.
         for r, s in state["rooms"].items():
@@ -276,6 +443,35 @@ class Twin:
                         "crit", "demo-scenario" if w["scenario_lph"] else "sensor-ml",
                         kl_day * C.WATER_INR_PER_KL, kl_day * C.WATER_KG_CO2_PER_KL,
                         {"leak_score": round(w["leak_score"], 2), "excess_lph": round(excess)}, sim)
+        elif w["leak_score"] < 0.7:
+            self._clear("water", "main-leak")
+
+        # Water tanks: overflow (float switch failure) and pumping in peak-tariff hours.
+        for tid, t in state["tanks"].items():
+            cfg = C.TANKS[tid]
+            stuck = any(sc["kind"] == "tank_overflow" and sc["target"] == tid for sc in self.scenarios)
+            if t["overflow_lph"] > 0:
+                kl_day = t["overflow_lph"] * 24 / 1000
+                kwh_day = cfg["pump_kw"] * 24
+                self._raise("water", "tank-overflow", tid, f"{t['name']} is overflowing",
+                            f"Pump still running at {t['level_pct']}% full: {t['overflow_lph']:,} L/h spilling. "
+                            "Likely a failed float switch; switch the pump off and replace the float valve.",
+                            "crit", "demo-scenario" if stuck else "sensor-ml",
+                            kl_day * C.WATER_INR_PER_KL + kwh_day * C.TARIFF_INR_PER_KWH,
+                            kl_day * C.WATER_KG_CO2_PER_KL + kwh_day * C.GRID_KG_CO2_PER_KWH,
+                            {"level_pct": t["level_pct"], "overflow_lph": t["overflow_lph"]}, sim)
+            elif not stuck:
+                self._clear("water", "tank-overflow", tid)
+            peak_h = sum(b - a for a, b in C.TOD_PEAK_HOURS)
+            if t["pump_on"] and self.is_peak(sim.hour) and t["peak_pump_min_today"] >= 30:
+                kwh = cfg["pump_kw"] * t["peak_pump_min_today"] / 60
+                self._raise("resource", "pump-peak", tid, f"{t['name']} pump running in peak-tariff hours",
+                            f"{t['peak_pump_min_today']} min of pumping in peak windows today ({kwh:.0f} kWh). "
+                            f"Schedule refills for 22:00-06:00 and keep a buffer: same water, lower tariff.",
+                            "warn", "sensor-ml", kwh * (C.TOD_PEAK_SURCHARGE + C.TOD_NIGHT_REBATE),
+                            0.0, {"peak_pump_min": t["peak_pump_min_today"], "peak_hours": peak_h}, sim)
+            elif not self.is_peak(sim.hour):
+                self._clear("resource", "pump-peak", tid)
 
         # Bins: overflow now, or forecast to overflow before the next pickup.
         for b, s in state["bins"].items():
@@ -297,13 +493,16 @@ class Twin:
             for b in self.bld_ids:
                 p = self.campus.buildings[b]
                 kw, wl = float(row[(b, "elec_kwh")]), float(row[(b, "water_l")])
+                live_kw, live_wl = self._live(b, "power_kw"), self._live(b, "water_lph")
+                kw = live_kw if live_kw is not None else kw
+                wl = live_wl if live_wl is not None else wl
                 for sc in self.scenarios:
                     if sc["kind"] == "leak" and sc["target"] == b:
                         wl += sc["lph"]
                 st["buildings"][b] = {"name": p["name"], "type": p["type"], "power_kw": round(kw, 1),
                                       "baseline_kw": round(self.base[(b, "elec")].expected(ts), 1),
                                       "water_lph": round(wl), "water_baseline_lph": round(self.base[(b, "water")].expected(ts)),
-                                      "_ts": ts}
+                                      "live": live_kw is not None or live_wl is not None, "_ts": ts}
 
             rrow, _ = self._row(self.rooms, sim, 2019, "15min")
             for r in self.room_ids:
@@ -333,6 +532,12 @@ class Twin:
                            "pressures": {z: round(float(wrow[f"p{i + 1}_m"]), 2) for i, z in enumerate(PRESSURE_ZONES) if f"p{i + 1}_m" in wrow}}
 
             st["bins"] = self.bin_state(sim)
+            self._step_tanks(sim)
+            st["tanks"] = self.tank_state()
+            h = sim.hour
+            st["tariff"] = {"band": "peak" if self.is_peak(h) else "night" if (h >= 22 or h < 6) else "normal",
+                            "inr_per_kwh": C.TARIFF_INR_PER_KWH + (C.TOD_PEAK_SURCHARGE if self.is_peak(h) else
+                                                                   -C.TOD_NIGHT_REBATE if (h >= 22 or h < 6) else 0)}
             self._detect(sim, st)
             self._check_deadlines(sim)
 
@@ -347,7 +552,16 @@ class Twin:
             st["alerts"] = [asdict(a) for a in sorted(self.alerts.values(), key=lambda a: a.updated, reverse=True)[:60]]
             st["orders"] = [asdict(o) for o in sorted(self.orders.values(), key=lambda o: o.created, reverse=True)]
             st["scenarios"] = [{"kind": s["kind"], "target": s["target"]} for s in self.scenarios]
+            st["live_sensors"] = len(self.live_sensors())
             return st
+
+    def snapshot_json(self, max_age=1.0):
+        """Serialized state shared by every WebSocket client, recomputed at most once per `max_age` seconds."""
+        with self.lock:
+            now = time.monotonic()
+            if self._snap is None or now - self._snap_t >= max_age:
+                self._snap, self._snap_t = json.dumps(self.state(), default=str), now
+            return self._snap
 
     def green_score(self, b, s):
         score = 100.0
@@ -377,6 +591,7 @@ class Twin:
             "waste_inr_per_day": round(sum(a.inr_per_day for a in open_a)),
             "green_score": round(sum(scores) / len(scores)) if scores else 0,
             "bins_attention": sum(1 for b in st["bins"].values() if b["status"] != "ok"),
+            "tariff_band": st.get("tariff", {}).get("band", "normal"),
         }
 
     # ---------- work orders ----------
@@ -469,7 +684,7 @@ class Twin:
 
     # ---------- what-if simulator ----------
     def simulate(self, ac_setpoint_delta=0.0, after_hours_cut=0.0, led_retrofit=False, fix_leaks=False,
-                 solar_kwp=0.0, pickups_per_day=2):
+                 solar_kwp=0.0, pickups_per_day=2, smart_pump_schedule=False):
         """Annualised savings from interventions, computed over a full year of replayed data."""
         elec = self.buildings.xs("elec_kwh", axis=1, level=1)
         total_kwh = float(elec.sum().sum())
@@ -492,15 +707,55 @@ class Twin:
         }
         kwh_saved = sum(saved.values())
         leak_kl = 0.0
+        open_leaks = [a for a in self.alerts.values() if a.kind == "water" and a.status in ("open", "assigned")]
         if fix_leaks:
-            open_leaks = [a for a in self.alerts.values() if a.kind == "water" and a.status in ("open", "assigned")]
             leak_kl = sum(a.evidence.get("excess_lph", a.evidence.get("lph", 0)) for a in open_leaks) * 24 * 365 / 1000
             leak_kl = leak_kl or float(self.water.leak_m3h.mean()) * 24 * 365 * 0.2
         bins = len(self.campus.of_type("bin"))
         overflow_hours = max(0.0, 6.0 - 2.5 * (pickups_per_day - 1)) * bins * 365
+
+        # Smart pump schedule: same water, pumped 22:00-06:00 instead of in peak windows (Rs only, no kWh).
+        pump_inr, pump_peak_kwh = 0.0, 0.0
+        water = self.buildings.xs("water_l", axis=1, level=1)
+        peak_mask = np.zeros(len(water), dtype=bool)
+        for a, b in C.TOD_PEAK_HOURS:
+            peak_mask |= (water.index.hour >= a) & (water.index.hour < b)
+        for tid in self.tanks:
+            cfg = C.TANKS[tid]
+            fed = [b for b in cfg["feeds"] if b in water.columns]
+            litres = float(water[fed].sum().sum())
+            peak_share = float(water[fed][peak_mask].sum().sum()) / litres if litres else 0.33
+            pump_peak_kwh += litres / cfg["pump_lph"] * cfg["pump_kw"] * peak_share
+        if smart_pump_schedule:
+            pump_inr = pump_peak_kwh * (C.TOD_PEAK_SURCHARGE + C.TOD_NIGHT_REBATE)
+
+        inr = {k: v * C.TARIFF_INR_PER_KWH for k, v in saved.items()}
+        inr["fix_leaks"] = leak_kl * C.WATER_INR_PER_KL
+        inr["smart_pump"] = pump_inr
+        n_bld = len(self.bld_ids)
+        capex = {
+            "ac_setpoint": C.CAPEX["ac_setpoint"] if ac_setpoint_delta > 0 else 0,
+            "after_hours": C.CAPEX["after_hours_per_building"] * n_bld * min(max(after_hours_cut, 0), 1),
+            "led_retrofit": saved["led_retrofit"] / C.LIGHTING_HOURS_YEAR * 1000 * C.CAPEX["led_per_w_saved"],
+            "solar": solar_kwp * C.CAPEX["solar_per_kwp"],
+            "fix_leaks": C.CAPEX["leak_fix"] * max(1, len(open_leaks)) if fix_leaks else 0,
+            "smart_pump": C.CAPEX["smart_pump"] * len(self.tanks) if smart_pump_schedule else 0,
+        }
+        opex_year = C.CAPEX["bin_pickup_per_year"] * (pickups_per_day - 2)
+        payback = {k: (round(capex[k] / inr[k], 1) if inr[k] > 0 and capex[k] > 0 else (0.0 if inr[k] > 0 else None))
+                   for k in capex}
+        total_inr = sum(inr.values())
+        total_capex = sum(capex.values())
         result = {
             "kwh_saved_year": round(kwh_saved),
-            "inr_saved_year": round(kwh_saved * C.TARIFF_INR_PER_KWH + leak_kl * C.WATER_INR_PER_KL),
+            "inr_saved_year": round(total_inr),
+            "inr_breakdown": {k: round(v) for k, v in inr.items()},
+            "capex_inr": {k: round(v) for k, v in capex.items()},
+            "capex_total_inr": round(total_capex),
+            "payback_years": payback,
+            "payback_total_years": round(total_capex / total_inr, 1) if total_inr > 0 else None,
+            "bin_opex_inr_year": round(opex_year),
+            "pump_peak_kwh_year": round(pump_peak_kwh),
             "co2_tonnes_saved_year": round((kwh_saved * C.GRID_KG_CO2_PER_KWH + leak_kl * C.WATER_KG_CO2_PER_KL) / 1000, 1),
             "water_kl_saved_year": round(leak_kl),
             "breakdown_kwh": {k: round(v) for k, v in saved.items()},

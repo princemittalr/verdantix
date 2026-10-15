@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1210">
+<title>Report a problem · Verdantix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  :root { --bg: #0b1210; --surface: #111c19; --raised: #172521; --line: #24352f; --fg: #e3ece8; --muted: #8fa39b;
+          --accent: #4cc79e; --ink: #062018; --warn: #f0a948; --crit: #ff6b5e; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Source Sans 3", system-ui, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px calc(28px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+  header { display: flex; align-items: center; gap: 10px; }
+  .logo { font-size: 26px; color: var(--accent); }
+  h1 { font: 800 24px/1.15 "Bricolage Grotesque", system-ui, sans-serif; margin: 6px 0 0; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .shot { position: relative; display: grid; place-items: center; min-height: 210px; border: 2px dashed var(--line); border-radius: 14px; background: var(--surface); cursor: pointer; overflow: hidden; text-align: center; padding: 16px; }
+  .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .shot b { font: 700 18px "Bricolage Grotesque", system-ui, sans-serif; display: block; }
+  .shot input { display: none; }
+  .loc { display: flex; gap: 10px; align-items: center; background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .loc .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+  .loc.ok .dot { background: var(--accent); }
+  .loc.bad .dot { background: var(--crit); }
+  .loc button { margin-left: auto; }
+  label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 12px; width: 100%; }
+  button { font: 600 16px "Source Sans 3", system-ui, sans-serif; background: var(--accent); color: var(--ink); border: 0; border-radius: 10px; padding: 14px; cursor: pointer; }
+  button.small { padding: 6px 10px; font-size: 13px; background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: .55; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .result { border-radius: 12px; padding: 14px; background: var(--raised); border-left: 4px solid var(--accent); }
+  .result.no { border-left-color: var(--warn); }
+  .result b { font: 700 18px "Bricolage Grotesque", system-ui, sans-serif; display: block; margin-bottom: 4px; }
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; font: 500 11px "JetBrains Mono", monospace; color: var(--muted); text-transform: uppercase; }
+  .steps span { background: var(--surface); border: 1px solid var(--line); padding: 3px 7px; border-radius: 6px; }
+  .steps span.pass { color: var(--accent); border-color: #1d4d38; }
+  .steps span.fail { color: var(--crit); border-color: #5a2722; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header><span class="logo">◈</span><div><b>Verdantix</b><p class="sub">DSU Harohalli campus twin</p></div></header>
+  <div>
+    <h1>Spot waste, a leak or lights left on?</h1>
+    <p class="sub">Snap it. AI checks it's real and on campus, then facilities get it on the live twin.</p>
+  </div>
+
+  <form id="f">
+    <div style="display:grid;gap:14px">
+      <label class="shot" id="shot">
+        <input type="file" id="file" accept="image/*" capture="environment" required>
+        <div id="shotTxt"><b>📷 Take a photo</b><span class="sub">Overflowing bin, litter, leaking tap, empty room with lights on…</span></div>
+        <img id="prev" alt="" hidden>
+      </label>
+
+      <div class="loc" id="loc"><span class="dot"></span><span id="locTxt">Finding your location…</span><button type="button" class="small" id="locBtn">Retry</button></div>
+      <label id="zoneWrap" hidden>Or pick the place
+        <select id="zone"><option value="">Choose a building or spot</option></select>
+      </label>
+
+      <label><span>What's wrong? <small>(optional)</small></span><input id="note" maxlength="140" placeholder="e.g. tap running in 2nd floor washroom"></label>
+      <label><span>Your name <small>(optional, earns green credits)</small></span><input id="name" maxlength="40" autocomplete="name"></label>
+      <button id="go">Send report</button>
+    </div>
+  </form>
+  <div id="out"></div>
+  <p class="sub">Checks, in order: on campus · not a duplicate photo · AI sees a real problem · not already reported nearby. <a href="/">Open the live twin</a></p>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+let pos = null, campus = null, blob = null;
+
+try { $("#name").value = localStorage.getItem("vx-name") || ""; } catch {}
+
+function setLoc(state, text) { $("#loc").className = `loc ${state}`; $("#locTxt").textContent = text; }
+function locate() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    setLoc("bad", "GPS needs the https link. Pick the place below.");
+    $("#zoneWrap").hidden = false;
+    return;
+  }
+  setLoc("", "Finding your location…");
+  navigator.geolocation.getCurrentPosition(
+    (p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; setLoc("ok", `Located · ±${Math.round(pos.acc)} m`); },
+    (e) => { setLoc("bad", e.code === 1 ? "Location blocked. Pick the place below." : "Couldn't get GPS. Pick the place below."); $("#zoneWrap").hidden = false; },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+}
+$("#locBtn").onclick = locate;
+locate();
+
+fetch("/api/campus").then((r) => r.json()).then((g) => {
+  campus = g;
+  $("#zone").innerHTML += g.features.filter((f) => f.properties.type !== "camera" && f.properties.type !== "water_meter")
+    .map((f) => `<option value="${f.properties.id}">${esc(f.properties.name)}</option>`).join("");
+});
+
+// Shrink phone photos (often 4-12 MB) to ~1280 px before upload; campus Wi-Fi is slow.
+async function shrink(file) {
+  const img = await createImageBitmap(file).catch(() => null);
+  if (!img) return file;
+  const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise((res) => c.toBlob((b) => res(b || file), "image/jpeg", 0.85));
+}
+$("#file").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  blob = await shrink(f);
+  $("#prev").src = URL.createObjectURL(blob);
+  $("#prev").hidden = false;
+  $("#shotTxt").hidden = true;
+};
+
+const CHECKS = ["location", "duplicate", "issue", "repeat"];
+const LABEL = { location: "on campus", duplicate: "new photo", issue: "AI sees issue", repeat: "not a repeat" };
+function steps(failed) {
+  const at = failed ? CHECKS.indexOf(failed) : CHECKS.length;
+  return `<div class="steps">${CHECKS.map((c, i) => `<span class="${i < at ? "pass" : i === at ? "fail" : ""}">${i < at ? "✓" : i === at ? "✗" : "·"} ${LABEL[c]}</span>`).join("")}</div>`;
+}
+
+$("#f").onsubmit = async (e) => {
+  e.preventDefault();
+  if (!blob) return alert("Take a photo first.");
+  let loc = pos;
+  const z = $("#zone").value;
+  if (z && campus) {
+    const f = campus.features.find((x) => x.properties.id === z);
+    const c = f.geometry.type === "Point" ? f.geometry.coordinates : f.properties.center;
+    loc = { lng: c[0], lat: c[1], acc: 0 };
+  }
+  if (!loc) { $("#zoneWrap").hidden = false; return alert("We need a location: allow GPS or pick the place."); }
+  const name = $("#name").value.trim();
+  try { localStorage.setItem("vx-name", name); } catch {}
+  const fd = new FormData();
+  fd.append("file", blob, "report.jpg");
+  fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("accuracy_m", loc.acc || 0);
+  fd.append("note", $("#note").value.trim()); fd.append("reporter", name);
+  $("#go").disabled = true; $("#go").textContent = "Checking with AI…";
+  try {
+    const r = await fetch("/api/reports", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    $("#out").innerHTML = d.ok
+      ? `<div class="result"><b>Thanks! Report ${d.report.id} is on the twin.</b>${steps(null)}
+         <p class="sub">AI read it as <b style="display:inline;font-size:inherit">${esc(d.report.clip.issue)}</b> (${Math.round(d.report.clip.issue_score * 100)}%). Facilities alert ${d.alert} is open.${d.credits != null ? ` You have ${d.credits} green credits.` : ""}</p></div>`
+      : `<div class="result no"><b>${d.check === "repeat" ? "Already reported. Your confirmation was added." : "Not added yet"}</b>${steps(d.check)}<p class="sub">${esc(d.message)}</p></div>`;
+    if (d.ok) { $("#f").reset(); blob = null; $("#prev").hidden = true; $("#shotTxt").hidden = false; $("#name").value = name; }
+  } catch (err) {
+    $("#out").innerHTML = `<div class="result no"><b>Couldn't send</b><p class="sub">${esc(err.message)}</p></div>`;
+  }
+  $("#go").disabled = false; $("#go").textContent = "Send report";
+  $("#out").scrollIntoView({ behavior: "smooth" });
+};
+</script>
+</body>
+</html>

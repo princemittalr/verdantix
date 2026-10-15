@@ -12,12 +12,15 @@ Verdantix watches campus energy, water and waste using sensor data, computer vis
 | **Digital twin** | 3D map of DSU drawn from satellite imagery (buildings, hostels, food court, bins, cameras, water tanks). A simulation clock replays real meter data at 1×, 60× or 600× speed. |
 | **Energy** | Hourly meters per building. Anomalies come from a robust hour-of-week z-score, confirmed by an Isolation Forest. Room-level AC and lighting are flagged when cameras see an empty room or when they run after hours. |
 | **Water** | Leak detection on the campus inlet using minimum night flow, evaluated on 14 labelled pipe bursts. Pressure drops point to the likely zone. Night-flow alerts per building catch running taps. |
+| **Tanks & pumps** | Overhead tank and sump levels simulated from the buildings they feed, with float-switch pumps. Detects tank overflow (failed float valve) and pumping in peak time-of-day tariff hours, the campus's "inefficient resource use" alert. |
+| **Forecasting** | Day-ahead electricity forecast per building (gradient-boosted trees, features at least 24 h old), tested on held-out Nov–Dec data against a seasonal-naive baseline. Drawn on the building chart and available to the copilot. |
 | **Waste** | Bin fill model with time-to-full forecasting and an optimised pickup route. A fine-tuned YOLO11n classifies bins as Empty, Half or Overflow from camera frames. |
 | **Computer vision** | YOLO11n counts people for occupancy. CLIP ViT-B/32 zero-shot covers leaks, running taps, lights on in empty rooms and litter, which have no training data. CLIP also verifies the "after fix" proof photo before a work order can close. |
-| **Students as sensors** | Students submit photo reports, which pass ordered checks: on campus, duplicate check (pHash), CLIP issue score, and a repeat check (CLIP similarity within 60 m). |
+| **Students as sensors** | A QR code on the dashboard opens a mobile page (`/report`) that uses the phone's GPS and camera. Reports pass ordered checks: on campus, duplicate check (pHash), CLIP issue score, and a repeat check (CLIP similarity within 60 m). Accepted reports earn green credits on a leaderboard. |
+| **Live IoT ingest** | `POST /api/ingest` takes readings from real sensors (ESP32 sketch in `hardware/`, simulator in `scripts/fake_sensor.py`). Fresh readings override the replayed data and run through the same detectors. |
 | **Hotspots** | DBSCAN over all alert locations (40 m radius, 30-day half-life) suggests permanent fixes. |
-| **GenAI copilot** | Gemini free tier, then Groq free tier, through OpenAI-compatible tool calling over live twin data. Without internet, a free local Qwen2.5-1.5B on CPU answers from the same live facts. A rule-based answer is the last fallback. It cites alert IDs and never invents numbers. |
-| **What-if simulator** | Annual ₹, kWh and CO₂ savings from raising the AC setpoint, cutting after-hours load, an LED retrofit, rooftop solar, fixing leaks, or changing pickup frequency, computed over a full year of data. |
+| **GenAI copilot** | Gemini free tier, then Groq free tier, through OpenAI-compatible tool calling over live twin data. Without internet, a free local Qwen2.5-1.5B on CPU answers from the same live facts. A rule-based answer is the last fallback. It cites alert IDs and never invents numbers. Voice input and answers in English, Kannada or Hindi. |
+| **What-if simulator** | Annual ₹, kWh and CO₂ savings from raising the AC setpoint, cutting after-hours load, an LED retrofit, rooftop solar, fixing leaks, a smart off-peak pump schedule, or changing pickup frequency, computed over a full year of data, with indicative capex and payback per measure. |
 | **Reports** | Weekly sustainability report: numbers from the twin, narrative from GenAI, exported as PDF. |
 | **Accountability** | Work orders with deadlines per kind (water 4 h, waste 6 h, energy 24 h), an overdue state, a proof-photo close, and green-score grades A–D per block on a leaderboard. |
 
@@ -63,13 +66,34 @@ venv\Scripts\python.exe -m uvicorn app:app --app-dir backend --port 8000
 ```
 Open http://localhost:8000.
 
+## Deploy (free Hugging Face Space)
+
+```bash
+venv\Scripts\python.exe -m pip install -U huggingface_hub
+venv\Scripts\python.exe scripts\deploy_hf.py <your-hf-username>
+```
+The script creates a Docker Space, uploads code, weights and `backend/data/cache` (which git ignores), and stores the API keys from `.env` as Space secrets. The live link is `https://<username>-verdantix.hf.space` (https, so phone camera and GPS work).
+
+## Real sensors
+
+```bash
+venv\Scripts\python.exe scripts\fake_sensor.py               # simulated ESP32 nodes -> local twin
+curl -X POST localhost:8000/api/ingest -H "Content-Type: application/json" \
+     -d '{"sensor":"esp32-01","asset":"bin-soe-1","metric":"bin_fill","value":92}'
+```
+Metrics: `power_kw`, `water_lph` (buildings), `bin_fill` (bins), `people` (rooms), `tank_level_pct` (tanks). `GET /api/sensors` lists live sensors and valid asset ids. Set `INGEST_TOKEN` in `.env` to require an `X-Token` header.
+
+## Demo
+
+Press **▶ Guided demo** in the header: it walks through night leak → work order → tank overflow → empty-room AC → bin route → copilot → what-if → student QR, with captions (→ / Esc to skip / stop).
+
 ## Architecture
 
 ```
  cameras / webcam / demo video ──YOLO11n + CLIP──┐
  student photo reports ──checks + CLIP───────────┤
  replayed meters (BDG2, CU-BEMS, BattLeDIM, UCI) ├─> FastAPI twin engine ──WebSocket──> 3D dashboard (MapLibre)
- (future: ESP32 → MQTT → same ingest)            │    anomaly models · alerts · work orders · simulator
+ ESP32 sensors ──POST /api/ingest───────────────┤    anomaly models · forecasts · tanks · work orders · simulator
                                                  └─> GenAI copilot (tool calls) ──> actions · weekly PDF report
 ```
 
@@ -77,6 +101,7 @@ Open http://localhost:8000.
 - The meter data is real but comes from other campuses, rescaled to DSU's footprint. It is not DSU's own consumption.
 - The leak detector uses one inlet signal. BattLeDIM's best methods use all 33 pressure sensors.
 - The occupancy model is accurate on UCI data (see the app), but alerts come only from camera evidence or after-hours rules.
-- Demo scenarios (leak, AC left on, bin overflow) are injections, and the UI labels them as such.
+- Demo scenarios (leak, AC left on, bin overflow, tank overflow) are injections, and the UI labels them as such.
+- Tank levels are simulated from the fed buildings' metered water use; capacities, pump ratings, time-of-day tariff and capex figures are stated assumptions (see Data & models).
 
 Built during CodeClash 2.0 (15–16 Oct 2026). Ideas carried over from the team's earlier Clean City project. All code is new.

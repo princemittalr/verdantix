@@ -17,7 +17,14 @@ Rules:
 - Rank actions by rupee impact per day, and give each one an owner team and a deadline.
 - Money in Indian rupees (Rs), CO2 in kg or tonnes. Be concise: short bullet points.
 - If asked to create a work order, call create_work_order.
+- Electricity has a time-of-day tariff (peak 06-10 and 18-22 cost more, 22-06 cheaper); suggest shifting flexible loads such as water pumping.
+- Water tanks have float-switch pumps; an overflowing tank wastes water and pump energy.
 - The data is real open datasets (BDG2, CU-BEMS, BattLeDIM, UCI) mapped onto DSU's buildings; say so if asked about data."""
+
+LANG = {
+    "kn": "Reply in Kannada (ಕನ್ನಡ script). Keep alert IDs, numbers, units and building names exactly as given.",
+    "hi": "Reply in Hindi (Devanagari script). Keep alert IDs, numbers, units and building names exactly as given.",
+}
 
 TOOLS = [
     {"type": "function", "function": {"name": "campus_overview", "description": "Campus KPIs now: power, today's energy, cost, CO2, water, green score, open alerts.", "parameters": {"type": "object", "properties": {}}}},
@@ -27,7 +34,10 @@ TOOLS = [
         "ac_setpoint_delta": {"type": "number", "description": "Raise AC setpoint by N degC"},
         "after_hours_cut": {"type": "number", "description": "Fraction 0-1 of after-hours excess load removed"},
         "led_retrofit": {"type": "boolean"}, "fix_leaks": {"type": "boolean"},
-        "solar_kwp": {"type": "number"}, "pickups_per_day": {"type": "integer"}}}}},
+        "solar_kwp": {"type": "number"}, "pickups_per_day": {"type": "integer"},
+        "smart_pump_schedule": {"type": "boolean", "description": "Pump water tanks off-peak (22-06) instead of in peak hours"}}}}},
+    {"type": "function", "function": {"name": "water_tanks", "description": "Water tank levels, pump state, overflow and peak-hour pumping today, plus the current tariff band.", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "energy_forecast", "description": "Day-ahead (next 24 h) electricity forecast for one building: total kWh and expected peak.", "parameters": {"type": "object", "properties": {"building": {"type": "string"}}, "required": ["building"]}}},
     {"type": "function", "function": {"name": "bins_and_route", "description": "Bin fill levels, time-to-full forecast and optimised pickup route.", "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "create_work_order", "description": "Assign an alert to the facilities team with a deadline.", "parameters": {"type": "object", "properties": {"alert_id": {"type": "string"}, "note": {"type": "string"}}, "required": ["alert_id"]}}},
 ]
@@ -56,7 +66,25 @@ def make_handlers(twin):
                 "baseline_24h_kwh": round(sum(series["baseline"]))}
 
     def simulate(**kw):
-        return twin.simulate(**kw)
+        r = twin.simulate(**kw)
+        return {k: v for k, v in r.items() if k != "assumptions"}
+
+    def water_tanks():
+        st = twin.state()
+        return {"tariff": st["tariff"], "tanks": {k: {x: v[x] for x in ("name", "level_pct", "pump_on", "overflow_lph",
+                                                                            "peak_pump_min_today", "demand_lph", "feeds")}
+                                                    for k, v in st["tanks"].items()}}
+
+    def energy_forecast(building):
+        st = twin.state()
+        key = building.lower().strip()
+        bid = next((b for b, s in st["buildings"].items() if key in (b, s["name"].lower()) or key in s["name"].lower()), None)
+        if not bid:
+            return {"error": f"unknown building {building}"}
+        s = twin.building_series(bid, twin.clock.now())
+        return {"building": st["buildings"][bid]["name"], "next_24h_kwh": s["forecast_kwh_24h"],
+                "peak_kw": s["forecast_peak_kw"], "peak_at": s["forecast_peak_at"],
+                "model_test_mape_pct": s["forecast_mape_pct"]}
 
     def bins_and_route():
         sim = twin.clock.now()
@@ -67,7 +95,8 @@ def make_handlers(twin):
         return {"work_order": o.id, "team": o.team, "deadline": o.deadline, "title": o.title}
 
     return {"campus_overview": campus_overview, "list_alerts": list_alerts, "building_status": building_status,
-            "simulate": simulate, "bins_and_route": bins_and_route, "create_work_order": create_work_order}
+            "simulate": simulate, "bins_and_route": bins_and_route, "create_work_order": create_work_order,
+            "water_tanks": water_tanks, "energy_forecast": energy_forecast}
 
 
 def fallback_answer(handlers, question):
@@ -86,9 +115,10 @@ def fallback_answer(handlers, question):
     return "\n".join(lines)
 
 
-def ask(twin, question, history=None):
+def ask(twin, question, history=None, lang="en"):
     handlers = make_handlers(twin)
-    base = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": question}]
+    system = SYSTEM + ("\n- " + LANG[lang] if lang in LANG else "")
+    base = [{"role": "system", "content": system}] + (history or [])[-6:] + [{"role": "user", "content": question}]
     errors = []
     # Free providers in order: Gemini (free tier), Groq (free tier), local Qwen on CPU, then rule-based.
     for first in [name for name, _, key, _ in PROVIDERS if key()]:
@@ -100,7 +130,7 @@ def ask(twin, question, history=None):
     if local_llm.available():
         try:
             facts, used = grounded_facts(handlers, question)
-            text = local_llm.generate(SYSTEM, f"Live twin data (JSON):\n{json.dumps(facts, default=str)[:6000]}\n\nQuestion: {question}")
+            text = local_llm.generate(system, f"Live twin data (JSON):\n{json.dumps(facts, default=str)[:6000]}\n\nQuestion: {question}")
             return {"answer": text, "provider": "local-qwen", "tools": [{"tool": t, "args": {}} for t in used], "error": " | ".join(errors)}
         except Exception as e:
             errors.append(f"local: {e}")
@@ -114,6 +144,9 @@ def grounded_facts(handlers, question):
     if any(w in q for w in ("save", "saving", "what if", "what-if", "led", "solar", "setpoint", "ac ")):
         facts["simulation"] = handlers["simulate"](ac_setpoint_delta=1, after_hours_cut=0.5, led_retrofit=True, fix_leaks=True)
         used.append("simulate")
+    if any(w in q for w in ("tank", "pump", "tariff", "peak", "overflow")):
+        facts["tanks"] = handlers["water_tanks"]()
+        used.append("water_tanks")
     if any(w in q for w in ("bin", "route", "pickup", "waste", "garbage")):
         r = handlers["bins_and_route"]()
         facts["bins"] = {k: {"fill": v["fill"], "eta_full_h": v["eta_full_h"]} for k, v in r["bins"].items()}

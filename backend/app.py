@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -61,8 +61,8 @@ async def ws(sock: WebSocket):
     await sock.accept()
     try:
         while True:
-            st = await asyncio.to_thread(twin.state)
-            await sock.send_text(json.dumps(st, default=str))
+            # One shared snapshot for every open dashboard, so ten judges cost the same as one.
+            await sock.send_text(await asyncio.to_thread(twin.snapshot_json))
             await asyncio.sleep(1.5)
     except (WebSocketDisconnect, RuntimeError):
         pass
@@ -87,8 +87,7 @@ def clock(c: ClockIn):
     if c.jump == "night":
         twin.add_scenario("night")
     elif c.jump == "morning":
-        now = twin.clock.now()
-        twin.clock.jump_to(now.replace(hour=9, minute=0))
+        twin.add_scenario("morning")   # next 9 AM, never backwards
     elif c.jump:
         twin.clock.jump_to(datetime.fromisoformat(c.jump))
     return {"time": twin.clock.now().isoformat(timespec="minutes"), "speed": twin.clock.speed}
@@ -96,11 +95,10 @@ def clock(c: ClockIn):
 
 @app.post("/api/scenario/{kind}")
 def scenario(kind: str, target: str | None = None):
-    if kind not in ("leak", "ac_night", "bin_overflow", "night", "clear"):
-        raise HTTPException(400, "Scenario must be leak, ac_night, bin_overflow, night or clear")
+    if kind not in ("leak", "ac_night", "bin_overflow", "tank_overflow", "night", "morning", "clear"):
+        raise HTTPException(400, "Scenario must be leak, ac_night, bin_overflow, tank_overflow, night, morning or clear")
     if kind == "clear":
-        twin.scenarios.clear()
-        return {"cleared": True}
+        return {"cleared": twin.clear_demo()}
     return twin.add_scenario(kind, target)
 
 
@@ -165,11 +163,12 @@ async def analyze(file: UploadFile = File(...), camera: str = Form(""), room: st
 
 # ---------- student reports ----------
 @app.post("/api/reports")
-async def submit_report(file: UploadFile = File(...), lat: float = Form(...), lng: float = Form(...), note: str = Form("")):
+async def submit_report(file: UploadFile = File(...), lat: float = Form(...), lng: float = Form(...), note: str = Form(""),
+                        reporter: str = Form(""), accuracy_m: float = Form(0)):
     data = await file.read()
     img = _img(data)
     url = _save(data, "report")
-    return await asyncio.to_thread(desk.submit, img, lng, lat, note, url)
+    return await asyncio.to_thread(desk.submit, img, lng, lat, note, url, reporter[:40].strip(), accuracy_m)
 
 
 @app.get("/api/reports")
@@ -177,15 +176,54 @@ def list_reports():
     return desk.list()
 
 
+@app.get("/api/reports/leaderboard")
+def report_leaderboard():
+    return desk.leaderboard()
+
+
+@app.get("/report")
+def report_page():
+    """Mobile page students open from the QR code: photo + phone GPS -> the twin."""
+    return FileResponse(C.FRONTEND / "report.html")
+
+
+# ---------- IoT ingest (ESP32 / MQTT bridge / scripts/fake_sensor.py) ----------
+class ReadingIn(BaseModel):
+    sensor: str
+    asset: str
+    metric: str        # power_kw | water_lph | bin_fill | people | tank_level_pct
+    value: float
+
+
+@app.post("/api/ingest")
+def ingest(readings: ReadingIn | list[ReadingIn], x_token: str = Header("")):
+    if C.INGEST_TOKEN and x_token != C.INGEST_TOKEN:
+        raise HTTPException(401, "Missing or wrong X-Token header")
+    items = readings if isinstance(readings, list) else [readings]
+    try:
+        return {"accepted": [twin.ingest(r.sensor, r.asset, r.metric, r.value) for r in items]}
+    except KeyError as e:
+        raise HTTPException(400, str(e).strip("'"))
+
+
+@app.get("/api/sensors")
+def sensors():
+    return {"live": twin.live_sensors(), "fresh_seconds": twin.LIVE_FRESH_S,
+            "metrics": ["power_kw", "water_lph", "bin_fill", "people", "tank_level_pct"],
+            "assets": {"buildings": twin.bld_ids, "bins": twin.campus.of_type("bin"), "rooms": twin.room_ids,
+                       "tanks": list(twin.tanks)}}
+
+
 # ---------- AI ----------
 class AskIn(BaseModel):
     question: str
     history: list[dict] = []
+    lang: str = "en"   # en | kn | hi
 
 
 @app.post("/api/copilot")
 async def ask(q: AskIn):
-    return await asyncio.to_thread(copilot.ask, twin, q.question, q.history)
+    return await asyncio.to_thread(copilot.ask, twin, q.question, q.history, q.lang)
 
 
 class SimIn(BaseModel):
@@ -195,6 +233,7 @@ class SimIn(BaseModel):
     fix_leaks: bool = False
     solar_kwp: float = 0
     pickups_per_day: int = 2
+    smart_pump_schedule: bool = False
 
 
 @app.post("/api/simulate")
@@ -240,7 +279,10 @@ def about():
     return {"metrics": twin.metrics, "mapping": mapping, "models": vision.status, "seeded_events": seeded,
             "assumptions": {"grid_kg_co2_per_kwh": C.GRID_KG_CO2_PER_KWH, "tariff_inr_per_kwh": C.TARIFF_INR_PER_KWH,
                             "water_inr_per_kl": C.WATER_INR_PER_KL, "ac_saving_per_deg": C.AC_SAVING_PER_DEG,
-                            "solar_kwh_per_kwp_day": C.SOLAR_KWH_PER_KWP_DAY, "deadlines_h": C.DEADLINE_H},
+                            "solar_kwh_per_kwp_day": C.SOLAR_KWH_PER_KWP_DAY, "deadlines_h": C.DEADLINE_H,
+                            "tod_peak_hours": C.TOD_PEAK_HOURS, "tod_peak_surcharge_inr": C.TOD_PEAK_SURCHARGE,
+                            "tod_night_rebate_inr": C.TOD_NIGHT_REBATE, "capex_inr": C.CAPEX,
+                            "tanks": {k: {x: v[x] for x in ("capacity_kl", "pump_kw", "pump_lph")} for k, v in C.TANKS.items()}},
             "llm": {"gemini (free tier)": bool(C.GEMINI_API_KEY), "groq (free tier)": bool(C.GROQ_API_KEY),
                     "local qwen (CPU, offline)": local_llm.available()}}
 

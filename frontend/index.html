@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header class="top">
@@ -19,7 +19,11 @@
     </div>
     <button class="ghost" id="jumpNight" title="Jump to 2 AM tonight">Jump to 2 AM</button>
     <button class="ghost" id="jumpMorning">Jump to 9 AM</button>
+    <span id="tariff" class="badge" title="Time-of-day electricity tariff band">--</span>
+    <span id="iot" class="badge iot" hidden title="Readings from real sensors via /api/ingest">IoT live</span>
   </div>
+  <button id="autoBtn" title="Runs the 3-minute story with captions">▶ Guided demo</button>
+  <button class="ghost" id="qrBtn" title="Students scan this to report a problem">Report QR</button>
   <button class="ghost" id="aboutBtn">Data &amp; models</button>
 </header>
 
@@ -47,6 +51,7 @@
       <button data-scn="leak">Pipe leak</button>
       <button data-scn="ac_night">AC left on</button>
       <button data-scn="bin_overflow">Bin overflow</button>
+      <button data-scn="tank_overflow">Tank overflow</button>
       <button data-scn="clear" class="ghost">Clear</button>
     </div>
   </section>
@@ -76,6 +81,8 @@
       <canvas id="bldChart" height="180"></canvas>
       <h3>Rooms: SOE A Block <small>(AC · lights · occupancy)</small></h3>
       <div id="roomGrid" class="rooms"></div>
+      <h3>Water tanks <small>(level · pump · tariff)</small></h3>
+      <div id="tankList" class="list"></div>
       <h3>Bins <small>(fill · forecast)</small></h3>
       <div id="binList" class="list"></div>
     </div>
@@ -101,8 +108,15 @@
         <button>Why is any building red right now?</button>
         <button>How much can we save with a 1°C AC raise and LED retrofit?</button>
         <button>Plan today's bin pickup route.</button>
+        <button>Are the water tanks pumping at the right time?</button>
+        <button>Forecast tomorrow's peak for SOE A Block.</button>
       </div>
-      <form id="askForm" class="ask"><input id="askInput" placeholder="Ask about energy, water, waste…" autocomplete="off"><button>Ask</button></form>
+      <form id="askForm" class="ask">
+        <select id="askLang" title="Answer language"><option value="en">EN</option><option value="kn">ಕನ್ನಡ</option><option value="hi">हिन्दी</option></select>
+        <input id="askInput" placeholder="Ask about energy, water, waste…" autocomplete="off">
+        <button type="button" id="micBtn" class="ghost" title="Ask by voice" aria-label="Ask by voice">🎤</button>
+        <button>Ask</button>
+      </form>
     </div>
 
     <div class="tab" id="tab-whatif">
@@ -113,6 +127,7 @@
       <label class="slider">Bin pickups per day <b id="vPk">2</b><input type="range" id="sPk" min="1" max="4" step="1" value="2"></label>
       <label class="check"><input type="checkbox" id="sLed"> LED retrofit (−50% lighting)</label>
       <label class="check"><input type="checkbox" id="sLeak"> Fix detected leaks</label>
+      <label class="check"><input type="checkbox" id="sPump"> Smart pump schedule (refill tanks 22:00–06:00)</label>
       <div id="simOut" class="simout"></div>
     </div>
 
@@ -129,9 +144,13 @@
         <label>Where? <select id="repZone"></select></label>
         <small>or click the map to drop a pin</small>
         <input id="repNote" placeholder="What's wrong? (optional)">
+        <input id="repName" placeholder="Your name (for green credits, optional)" maxlength="40">
         <button>Submit report</button>
       </form>
       <div id="repResult"></div>
+      <div class="qrline"><div id="qrSmall"></div><div><b>On your phone?</b><br><small>Scan to open the mobile reporter. It uses your phone's GPS, so it works anywhere on campus.</small></div></div>
+      <h3>Green credits</h3>
+      <div id="repBoard" class="list"></div>
       <h3>Recent reports</h3>
       <div id="repList" class="list"></div>
     </div>
@@ -144,10 +163,15 @@
 </main>
 
 <dialog id="about"><div id="aboutBody"></div><form method="dialog"><button>Close</button></form></dialog>
+<dialog id="qrDlg" class="qrdlg"><h2>Spot a problem? Report it.</h2><div id="qrBig"></div><p class="mono" id="qrUrl"></p>
+  <p class="sub">Photo + your phone's GPS. AI checks it's real, then it lands on the twin within seconds.</p><form method="dialog"><button>Close</button></form></dialog>
+<div id="caption" class="caption" hidden><span id="capStep" class="mono"></span><p id="capText"></p>
+  <div class="row"><button id="capNext">Next ▸</button><button id="capStop" class="ghost">Stop</button></div></div>
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="app.js?v=6"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

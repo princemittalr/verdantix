@@ -141,5 +141,51 @@ class LeakDetector:
         return float(self.baseline[ts.dayofweek * 288 + ts.hour * 12 + ts.minute // 5])
 
 
+class LoadForecaster:
+    """Day-ahead electricity forecast for one building (gradient-boosted trees).
+
+    Every feature is at least 24 h old (same hour yesterday, same hour last week,
+    the 24 h mean ending yesterday), so the next 24 hours are predicted directly,
+    without feeding predictions back in. Trained on Jan-Oct, tested on Nov-Dec,
+    and compared with the seasonal-naive forecast (same hour last week).
+    """
+
+    def __init__(self, series):
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        s = series.astype(float)
+        self.s = s
+        X, y = self._features(s), s
+        ok = X.notna().all(axis=1)
+        X, y = X[ok], y[ok]
+        split = pd.Timestamp(f"{s.index[0].year}-11-01")
+        tr, te = X.index < split, X.index >= split
+        self.model = HistGradientBoostingRegressor(max_iter=200, learning_rate=0.08, random_state=7)
+        self.model.fit(X[tr], y[tr])
+        pred = self.model.predict(X[te])
+        naive = X[te]["lag168"].values
+        denom = np.maximum(np.abs(y[te].values), 0.05 * float(np.abs(y).mean()) + 1e-6)
+        self.mape = float(np.mean(np.abs(pred - y[te].values) / denom) * 100)
+        self.mape_naive = float(np.mean(np.abs(naive - y[te].values) / denom) * 100)
+        self.model.fit(X, y)  # refit on the full year for live forecasts
+
+    @staticmethod
+    def _features(s, index=None):
+        idx = s.index if index is None else index
+        h = idx.hour
+        lag24 = s.shift(24).reindex(idx) if index is None else s.reindex(idx - pd.Timedelta(hours=24)).set_axis(idx)
+        lag168 = s.shift(168).reindex(idx) if index is None else s.reindex(idx - pd.Timedelta(hours=168)).set_axis(idx)
+        roll = s.rolling(24).mean()
+        roll24 = roll.shift(24).reindex(idx) if index is None else roll.reindex(idx - pd.Timedelta(hours=24)).set_axis(idx)
+        return pd.DataFrame({"sin_h": np.sin(2 * np.pi * h / 24), "cos_h": np.cos(2 * np.pi * h / 24),
+                             "dow": idx.dayofweek, "weekend": (idx.dayofweek >= 5).astype(int),
+                             "lag24": lag24.values, "lag168": lag168.values, "roll24": roll24.values}, index=idx)
+
+    def forecast(self, t, hours=24):
+        """Forecast for the `hours` after dataset timestamp t (exclusive)."""
+        idx = pd.date_range(t + pd.Timedelta(hours=1), periods=hours, freq="h")
+        X = self._features(self.s, idx).ffill().bfill().fillna(float(self.s.mean()))
+        return np.maximum(self.model.predict(X), 0)
+
+
 def save_metrics(metrics):
     (CACHE / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")

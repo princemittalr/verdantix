@@ -43,3 +43,35 @@ EUI_KWH_M2_YEAR = {"academic": 70, "hospital": 180, "hostel": 45, "canteen": 200
 
 # Facilities response deadlines (hours) per alert kind.
 DEADLINE_H = {"water": 4, "waste": 6, "energy": 24, "resource": 24}
+
+# Campus clock runs on Indian Standard Time even when the server is in UTC (e.g. Hugging Face).
+IST_OFFSET_H = 5.5
+
+# Time-of-day tariff (assumed, modelled on KERC HT ToD): surcharge in peak windows, rebate at night.
+TOD_PEAK_HOURS = [(6, 10), (18, 22)]
+TOD_PEAK_SURCHARGE = 1.0     # Rs/kWh extra in peak windows
+TOD_NIGHT_REBATE = 1.0       # Rs/kWh less from 22:00 to 06:00
+
+# Water tanks: capacity, pump and which buildings each tank feeds (float switch: on < 35 %, off > 95 %).
+TANKS = {
+    "tank-soe-overhead": {"capacity_kl": 60, "pump_kw": 7.5, "pump_lph": 30000,
+                          "feeds": ["soe-a-block", "soe-b-block", "soe-food-court"]},
+    "tank-hostel-sump": {"capacity_kl": 120, "pump_kw": 11.0, "pump_lph": 45000,
+                         "feeds": ["boys-hostel", "girls-hostel", "hostel-mess"]},
+}
+PUMP_ON_PCT, PUMP_OFF_PCT = 35, 95
+
+# Indicative capital costs for the What-if payback (assumptions, shown in the UI).
+CAPEX = {
+    "ac_setpoint": 0,                 # policy + thermostat lock, no hardware
+    "after_hours_per_building": 150000,  # smart relays / BMS schedules per building, scaled by the cut
+    "led_per_w_saved": 25,            # Rs per W of lighting load removed (LED tube vs T8)
+    "solar_per_kwp": 45000,           # rooftop solar, institutional, Rs per kWp
+    "leak_fix": 40000,                # plumbing repair + a sub-meter
+    "smart_pump": 30000,              # timer / level controller per pump
+    "bin_pickup_per_year": 180000,    # one extra daily pickup round, staff time per year (opex)
+}
+LIGHTING_HOURS_YEAR = 3000
+
+# Optional shared secret for the IoT ingest API (set in .env for a public deployment).
+INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")

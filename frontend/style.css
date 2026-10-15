@@ -134,3 +134,42 @@ dialog td, dialog th { border-bottom: 1px solid var(--line); padding: 4px 6px; t
   .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .board { display: none; }
 }
+
+/* ---- additions: tariff/IoT badges, tanks, QR, guided demo caption ---- */
+.badge { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 5px 8px; border-radius: 6px; background: var(--raised); color: var(--muted); border: 1px solid var(--line); }
+.badge.peak { color: #ffb36b; border-color: #6b4a22; }
+.badge.night { color: #9fd3ff; border-color: #24435a; }
+.badge.iot { color: #7ee2b4; border-color: #1d4d38; animation: blink 2s infinite; }
+@keyframes blink { 50% { opacity: .55; } }
+.live-tag { font: 600 10px var(--mono); color: #7ee2b4; background: #12372a; padding: 1px 5px; border-radius: 4px; margin-left: 6px; }
+.tank { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center; }
+.tankviz { position: relative; height: 56px; border: 2px solid var(--line); border-top-width: 1px; border-radius: 4px 4px 8px 8px; overflow: hidden; background: var(--bg); }
+.tankviz i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(#5fa8ff, #2c6fc0); transition: height .6s; }
+.tankviz.crit { border-color: var(--crit); }
+.tankviz.crit::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(180deg, transparent 0 6px, rgba(255,107,94,.25) 6px 8px); animation: spill 1s linear infinite; }
+@keyframes spill { to { background-position: 0 16px; } }
+.card.clickable { cursor: pointer; }
+.card.clickable:hover { border-color: #3a5249; }
+.payback { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.payback td, .payback th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.payback td:first-child, .payback th:first-child { text-align: left; }
+.payback th { color: var(--muted); font: 500 10px var(--mono); text-transform: uppercase; }
+.qrline { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; background: var(--raised); border-radius: 8px; padding: 10px; margin-top: 12px; font-size: 13px; }
+.qrline small { color: var(--muted); }
+#qrSmall img, #qrSmall canvas, #qrBig img, #qrBig canvas { background: #fff; padding: 6px; border-radius: 6px; display: block; }
+.qrdlg { text-align: center; max-width: 420px; }
+.qrdlg h2 { font: 800 22px var(--display); margin: 4px 0 12px; }
+#qrBig { display: flex; justify-content: center; margin: 8px 0; }
+#qrUrl { font-size: 12px; color: var(--accent); word-break: break-all; }
+.caption { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; width: min(640px, calc(100% - 32px)); background: rgba(11,18,16,.96); border: 1px solid var(--accent); border-radius: 10px; padding: 12px 16px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.caption p { margin: 4px 0 10px; font: 600 17px/1.35 var(--display); }
+.caption span { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+.caption .row { margin: 0; justify-content: flex-end; }
+#micBtn.on { background: var(--crit); color: #fff; border-color: var(--crit); }
+#askLang { width: auto; }
+.simout .m, .list > .m { display: flex; gap: 8px; align-items: center; font: 500 11px var(--mono); color: var(--muted); }
+.list > .m b { color: var(--fg); }
+.maplibregl-popup-content { background: var(--raised); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+.maplibregl-popup-tip { border-top-color: var(--raised) !important; border-bottom-color: var(--raised) !important; }
+.maplibregl-popup-close-button { color: var(--muted); font-size: 16px; padding: 0 6px; background: transparent; }
+.demo { bottom: 34px; }

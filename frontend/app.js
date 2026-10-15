@@ -2,12 +2,14 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const fmt = (n) => (n == null ? "--" : Number(n).toLocaleString("en-IN"));
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const COLORS = { ok: "#3fbf7f", warn: "#f0a948", crit: "#ff6b5e" };
 let S = null;              // latest twin state
 let campus = null;         // campus geojson
 let map, bldChart, weekChart;
 let selected = null;       // selected building id
 let pin = null;            // student report location
+let forecastInfo = null;   // day-ahead forecast for the selected building
 const markers = {};
 const chatHistory = [];
 
@@ -66,7 +68,7 @@ async function initMap() {
     map.addSource("pts", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "pts", type: "circle", source: "pts",
                    paint: { "circle-radius": ["match", ["get", "type"], "bin", 7, 5],
-                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "camera", "#9fd3ff", "water_tank", "#5fa8ff", "water_meter", "#5fa8ff", "#ccc"],
+                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#9fd3ff", "water_meter", "#5fa8ff", "#ccc"],
                             "circle-stroke-color": "#000", "circle-stroke-width": 1.5 } });
     map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "route", type: "line", source: "route", layout: { visibility: "none" },
@@ -105,6 +107,8 @@ function updateMap(st) {
     const p = { ...f.properties };
     const bin = st.bins[p.id];
     if (bin) { p.color = COLORS[bin.status]; p.info = `Fill ${bin.fill}% · full in ${bin.eta_full_h} h · ${bin.source}`; }
+    const tank = st.tanks?.[p.id];
+    if (tank) { p.color = tank.status === "ok" ? "#5fa8ff" : COLORS[tank.status]; p.info = `Level ${tank.level_pct}% · pump ${tank.pump_on ? "ON" : "off"}${tank.overflow_lph ? ` · overflowing ${fmt(tank.overflow_lph)} L/h` : ""}`; }
     return { type: "Feature", geometry: f.geometry, properties: p };
   });
   map.getSource("pts").setData({ type: "FeatureCollection", features: pts });
@@ -118,7 +122,7 @@ function updateMap(st) {
     el.className = `pulse ${a.severity}`;
     el.title = a.title;
     markers[a.id] = new maplibregl.Marker({ element: el }).setLngLat([a.lng, a.lat])
-      .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(`<b>${a.id} · ${a.title}</b><br>${a.detail}<br>₹${fmt(a.inr_per_day)}/day`))
+      .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(`<b>${a.id} · ${esc(a.title)}</b><br>${esc(a.detail)}<br>₹${fmt(a.inr_per_day)}/day`))
       .addTo(map);
   }
 }
@@ -138,11 +142,41 @@ function render(st) {
   $("#kWater").textContent = fmt(k.water_today_kl);
   $("#kAlerts").textContent = k.open_alerts;
   $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)}/day at risk` : "";
+  const tb = st.tariff || {};
+  $("#tariff").textContent = tb.band ? `${tb.band} tariff · ₹${tb.inr_per_kwh}/kWh` : "--";
+  $("#tariff").className = `badge ${tb.band || ""}`;
+  $("#iot").hidden = !st.live_sensors;
+  $("#iot").textContent = `IoT live · ${st.live_sensors}`;
+  announce(st);
   renderBoard(st);
   renderAlerts(st);
   renderBuilding(st);
   updateMap(st);
 }
+
+// Toast each new critical alert once (not the ones already open when the page loads).
+const seenAlerts = new Set();
+let firstRender = true;
+function announce(st) {
+  for (const a of st.alerts) {
+    if (seenAlerts.has(a.id)) continue;
+    seenAlerts.add(a.id);
+    if (!firstRender && a.status === "open" && (a.severity === "crit" || a.source === "student")) {
+      toast(`New ${a.severity === "crit" ? "critical " : ""}alert ${a.id}: ${a.title}`, 5000);
+      beep();
+    }
+  }
+  firstRender = false;
+}
+function beep() {
+  try {
+    const ctx = beep.ctx || (beep.ctx = new AudioContext());
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 880; g.gain.value = 0.04;
+    o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.12);
+  } catch { /* audio blocked until the user interacts; that's fine */ }
+}
+function flyTo(lng, lat, zoom = 17.6) { if (map) map.flyTo({ center: [lng, lat], zoom, pitch: 60, speed: 0.8 }); }
 
 function renderBoard(st) {
   const rows = Object.entries(st.buildings).sort((a, b) => b[1].score - a[1].score);
@@ -153,9 +187,9 @@ function renderBoard(st) {
 function alertCard(a) {
   const order = a.work_order ? S.orders.find((o) => o.id === a.work_order) : null;
   const faded = a.status === "resolved" || a.status === "self-cleared";
-  return `<div class="card ${faded ? "ok faded" : a.severity}">
-    <div class="t">${a.id} · ${a.title}</div>
-    <div class="d">${a.detail}</div>
+  return `<div class="card clickable ${faded ? "ok faded" : a.severity}" data-fly="${a.lng},${a.lat}" title="Click to locate on the map">
+    <div class="t">${a.id} · ${esc(a.title)}</div>
+    <div class="d">${esc(a.detail)}</div>
     <div class="m"><span class="pill">${a.kind}</span><span class="pill src-${a.source}">${a.source}</span>
       <span>₹${fmt(a.inr_per_day)}/day</span><span>${a.co2_kg_per_day} kg CO₂/day</span><span>${a.status}${order ? " · " + order.id : ""}</span></div>
     ${a.evidence?.image ? `<img src="${a.evidence.image}" alt="" style="max-width:100%;border-radius:6px">` : ""}
@@ -168,10 +202,10 @@ function renderAlerts(st) {
   const open = st.alerts.filter((a) => a.status === "open" || a.status === "assigned");
   const done = st.alerts.filter((a) => a.status === "resolved").slice(0, 5);
   $("#alertList").innerHTML = open.length || done.length ? [...open, ...done].map(alertCard).join("") : `<div class="sub">No open issues. The twin is watching every meter, camera and report.</div>`;
-  $("#orderList").innerHTML = st.orders.length ? st.orders.map((o) => `<div class="card ${o.status === "done" ? "ok" : o.status === "overdue" ? "crit" : "warn"}">
-      <div class="t">${o.id} · ${o.team}</div><div class="d">${o.title}</div>
+  $("#orderList").innerHTML = st.orders.length ? st.orders.map((o) => `<div class="card ${o.status === "done" ? "ok" : o.status === "cancelled" ? "faded" : o.status === "overdue" ? "crit" : "warn"}">
+      <div class="t">${o.id} · ${o.team}</div><div class="d">${esc(o.title)}</div>
       <div class="m"><span>${o.status}</span><span>due ${o.deadline.replace("T", " ")}</span></div>
-      ${o.status !== "done" ? `<div class="act"><label class="btnlink" style="cursor:pointer">Upload proof photo<input type="file" accept="image/*" data-proof="${o.id}" hidden></label></div>` : `<div class="m">Verified by CLIP · issue score ${o.proof?.issue_score}</div>`}
+      ${o.status === "cancelled" ? `<div class="m">Demo scenario cleared</div>` : o.status !== "done" ? `<div class="act"><label class="btnlink" style="cursor:pointer">Upload proof photo<input type="file" accept="image/*" data-proof="${o.id}" hidden></label></div>` : `<div class="m">Verified by CLIP · issue score ${o.proof?.issue_score}</div>`}
     </div>`).join("") : `<div class="sub">No work orders yet. Assign an alert to create one.</div>`;
 }
 
@@ -180,12 +214,16 @@ async function selectBuilding(id) {
   $("#bldSelect").value = id;
   switchTab("building");
   const s = await api(`/api/building/${id}/series`);
-  const data = { labels: s.t, datasets: [
-    { label: "Actual kWh", data: s.kwh, borderColor: "#4cc79e", backgroundColor: "rgba(76,199,158,.15)", fill: true, tension: 0.3, pointRadius: 0 },
-    { label: "Expected", data: s.baseline, borderColor: "#8fa39b", borderDash: [4, 4], pointRadius: 0, tension: 0.3 },
+  const pad = (n) => Array(n).fill(null);
+  const fc = s.forecast || [];
+  const data = { labels: [...s.t, ...(s.t_fc || [])], datasets: [
+    { label: "Actual kWh", data: [...s.kwh, ...pad(fc.length)], borderColor: "#4cc79e", backgroundColor: "rgba(76,199,158,.15)", fill: true, tension: 0.3, pointRadius: 0 },
+    { label: "Expected", data: [...s.baseline, ...pad(fc.length)], borderColor: "#8fa39b", borderDash: [4, 4], pointRadius: 0, tension: 0.3 },
+    { label: "AI forecast (next 24 h)", data: [...pad(s.kwh.length - 1), s.kwh[s.kwh.length - 1], ...fc], borderColor: "#c99bff", borderDash: [6, 3], pointRadius: 0, tension: 0.3 },
   ] };
   if (bldChart) { bldChart.data = data; bldChart.update(); }
-  else bldChart = new Chart($("#bldChart"), { type: "line", data, options: chartOpts("kWh per hour") });
+  else bldChart = new Chart($("#bldChart"), { type: "line", data, options: chartOpts("kWh per hour · last 24 h and forecast") });
+  forecastInfo = s.forecast ? { id, kwh: s.forecast_kwh_24h, peak: s.forecast_peak_kw, at: s.forecast_peak_at, mape: s.forecast_mape_pct } : null;
   if (S) renderBuilding(S);
 }
 
@@ -201,7 +239,14 @@ function renderBuilding(st) {
   $("#bldInfo").innerHTML = [
     ["Power", `${fmt(b.power_kw)} kW`], ["Expected", `${fmt(b.baseline_kw)} kW`], ["Score", `${b.score} (${b.grade})`],
     ["Water", `${fmt(b.water_lph)} L/h`], ["Water normal", `${fmt(b.water_baseline_lph)} L/h`], ["Alerts", b.alerts.length],
-  ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("");
+    ...(forecastInfo && forecastInfo.id === id ? [["Next 24 h (AI)", `${fmt(forecastInfo.kwh)} kWh`], ["Forecast peak", `${fmt(forecastInfo.peak)} kW`], ["Peak at", forecastInfo.at]] : []),
+  ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") + (b.live ? `<div class="sub"><span class="live-tag">LIVE IoT</span> readings from a real sensor override the replayed meter.</div>` : "");
+  $("#tankList").innerHTML = Object.entries(st.tanks || {}).map(([tid, t]) => `<div class="card clickable ${t.status}" data-fly="${t.lng},${t.lat}">
+      <div class="tank"><div class="tankviz ${t.status}"><i style="height:${t.level_pct}%"></i></div>
+      <div><div class="t">${t.name}${t.live ? '<span class="live-tag">LIVE</span>' : ""}</div>
+      <div class="m"><span>${t.level_pct}% · ${t.level_kl}/${t.capacity_kl} kL</span><span>pump ${t.pump_on ? "ON" : "off"}</span>
+      <span>use ${fmt(t.demand_lph)} L/h</span>${t.overflow_lph ? `<span style="color:var(--crit)">spilling ${fmt(t.overflow_lph)} L/h</span>` : ""}</div>
+      <div class="m"><span>peak-hour pumping today: ${t.peak_pump_min_today} min</span></div></div></div></div>`).join("") || `<div class="sub">No tanks mapped.</div>`;
   const waste = new Set(st.alerts.filter((a) => a.rule === "empty-room" && a.status !== "resolved" && a.status !== "self-cleared").map((a) => a.asset));
   $("#roomGrid").innerHTML = Object.entries(st.rooms).map(([r, v]) => `<div class="room ${waste.has(r) ? "waste" : ""}">
       <b>${r.split("/")[1]}</b>AC ${v.ac_kw} kW<br>Light ${v.light_kw} kW<br>${v.people != null ? "📷 " + v.people + " people" : "occ " + Math.round(v.occ_prob * 100) + "%"}<br>${v.temp_c}°C</div>`).join("");
@@ -233,6 +278,11 @@ $("#bldSelect").onchange = (e) => selectBuilding(e.target.value);
 
 document.addEventListener("click", async (e) => {
   const assign = e.target.dataset.assign, dismiss = e.target.dataset.dismiss;
+  const card = e.target.closest?.("[data-fly]");
+  if (card && !assign && !dismiss && e.target.tagName !== "INPUT" && e.target.tagName !== "LABEL") {
+    const [lng, lat] = card.dataset.fly.split(",").map(Number);
+    flyTo(lng, lat);
+  }
   if (assign) { const o = await post(`/api/alerts/${assign}/order`); toast(`${o.id} assigned to ${o.team}, due ${o.deadline.replace("T", " ")}`); }
   if (dismiss) { await post(`/api/alerts/${dismiss}/dismiss`); }
 });
@@ -367,7 +417,7 @@ async function ask(q) {
   addMsg(q, true);
   const wait = addMsg("Checking the twin…", false);
   try {
-    const r = await post("/api/copilot", { question: q, history: chatHistory });
+    const r = await post("/api/copilot", { question: q, history: chatHistory, lang: $("#askLang").value });
     wait.remove();
     addMsg(r.answer, false, `${r.provider}${r.tools.length ? " · tools: " + r.tools.map((t) => t.tool).join(", ") : ""}`);
     chatHistory.push({ role: "user", content: q }, { role: "assistant", content: r.answer });
@@ -375,11 +425,30 @@ async function ask(q) {
 }
 $("#askForm").onsubmit = (e) => { e.preventDefault(); const q = $("#askInput").value.trim(); if (q) { $("#askInput").value = ""; ask(q); } };
 $$(".chips button").forEach((b) => (b.onclick = () => ask(b.textContent)));
+// Voice: browser speech recognition (Chrome/Edge), in the selected answer language.
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = $("#micBtn");
+  if (!SR) { btn.hidden = true; return; }
+  let rec = null;
+  btn.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    rec = new SR();
+    rec.lang = { en: "en-IN", kn: "kn-IN", hi: "hi-IN" }[$("#askLang").value] || "en-IN";
+    rec.interimResults = true;
+    btn.classList.add("on");
+    rec.onresult = (e) => { $("#askInput").value = [...e.results].map((r) => r[0].transcript).join(""); };
+    rec.onend = () => { btn.classList.remove("on"); const q = $("#askInput").value.trim(); rec = null; if (q) { $("#askInput").value = ""; ask(q); } };
+    rec.onerror = (e) => toast(`Voice input: ${e.error}`);
+    rec.start();
+  };
+})();
 
 // ---------------- what-if ----------------
 async function runSim() {
   const p = { ac_setpoint_delta: +$("#sAc").value, after_hours_cut: $("#sAh").value / 100, solar_kwp: +$("#sSol").value,
-              pickups_per_day: +$("#sPk").value, led_retrofit: $("#sLed").checked, fix_leaks: $("#sLeak").checked };
+              pickups_per_day: +$("#sPk").value, led_retrofit: $("#sLed").checked, fix_leaks: $("#sLeak").checked,
+              smart_pump_schedule: $("#sPump").checked };
   $("#vAc").textContent = `${p.ac_setpoint_delta} °C`; $("#vAh").textContent = `${Math.round(p.after_hours_cut * 100)}%`;
   $("#vSol").textContent = `${p.solar_kwp} kWp`; $("#vPk").textContent = p.pickups_per_day;
   const r = await post("/api/simulate", p);
@@ -388,12 +457,22 @@ async function runSim() {
       <div class="stat"><span>CO₂ avoided</span><b>${r.co2_tonnes_saved_year} t</b></div>
       <div class="stat"><span>Energy saved</span><b>${fmt(r.kwh_saved_year)} kWh</b></div>
       <div class="stat"><span>Of campus energy</span><b>${r.pct_energy_saved}%</b></div></div>
+    ${paybackTable(r)}
     <div class="list">${Object.entries(r.breakdown_kwh).map(([k, v]) => `<div class="m"><span style="width:110px">${k.replace("_", " ")}</span>
       <div class="bar" style="flex:1"><i style="width:${r.kwh_saved_year ? (100 * v) / r.kwh_saved_year : 0}%"></i></div><span>${fmt(v)} kWh</span></div>`).join("")}</div>
-    <div class="sub">Water saved: ${fmt(r.water_kl_saved_year)} kL/yr · bin overflow-hours/yr: ${fmt(r.bin_overflow_hours_year)} ·
+    <div class="sub">Water saved: ${fmt(r.water_kl_saved_year)} kL/yr · bin overflow-hours/yr: ${fmt(r.bin_overflow_hours_year)}${r.bin_opex_inr_year > 0 ? ` (extra pickups cost ₹${fmt(r.bin_opex_inr_year)}/yr)` : ""} ·
       assumes AC share ${Math.round(r.assumptions.ac_share * 100)}% of load, ₹${r.assumptions.tariff}/kWh, ${r.assumptions.grid_factor} kg CO₂/kWh</div>`;
 }
-["#sAc", "#sAh", "#sSol", "#sPk", "#sLed", "#sLeak"].forEach((s) => $(s).addEventListener("input", runSim));
+function paybackTable(r) {
+  const names = { ac_setpoint: "AC setpoint", after_hours: "After-hours cut", led_retrofit: "LED retrofit", solar: "Rooftop solar", fix_leaks: "Fix leaks", smart_pump: "Smart pumps" };
+  const rows = Object.keys(names).filter((k) => r.inr_breakdown[k] > 0);
+  if (!rows.length) return `<div class="sub">Move a slider to see savings, cost and payback.</div>`;
+  const yrs = (v) => (v == null ? "–" : v === 0 ? "instant" : v < 1 ? `${Math.round(v * 12)} mo` : `${v} yr`);
+  return `<table class="payback"><tr><th>Measure</th><th>₹ saved/yr</th><th>Capex</th><th>Payback</th></tr>
+    ${rows.map((k) => `<tr><td>${names[k]}</td><td>₹${fmt(r.inr_breakdown[k])}</td><td>₹${fmt(r.capex_inr[k])}</td><td>${yrs(r.payback_years[k])}</td></tr>`).join("")}
+    <tr><th>Total</th><th>₹${fmt(r.inr_saved_year)}</th><th>₹${fmt(r.capex_total_inr)}</th><th>${yrs(r.payback_total_years)}</th></tr></table>`;
+}
+["#sAc", "#sAh", "#sSol", "#sPk", "#sLed", "#sLeak", "#sPump"].forEach((s) => $(s).addEventListener("input", runSim));
 
 // ---------------- report ----------------
 $("#genReport").onclick = async () => {
@@ -419,16 +498,20 @@ $("#repForm").onsubmit = async (e) => {
   if (!loc) return toast("Pick a place from the list or click the map.");
   const fd = new FormData();
   fd.append("file", f); fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("note", $("#repNote").value);
+  fd.append("reporter", $("#repName").value.trim());
   $("#repResult").innerHTML = "<div class='sub'>Checking location, duplicates and photo…</div>";
   const r = await api("/api/reports", { method: "POST", body: fd });
   $("#repResult").innerHTML = r.ok
-    ? `<div class="card ok"><div class="t">Accepted as ${r.report.id} → alert ${r.alert}</div><div class="d">CLIP: ${r.report.clip.issue} (${Math.round(r.report.clip.issue_score * 100)}%)</div></div>`
+    ? `<div class="card ok"><div class="t">Accepted as ${r.report.id} → alert ${r.alert}${r.credits != null ? ` · ${r.credits} green credits` : ""}</div><div class="d">CLIP: ${r.report.clip.issue} (${Math.round(r.report.clip.issue_score * 100)}%)</div></div>`
     : `<div class="card warn"><div class="t">Not accepted (${r.check} check)</div><div class="d">${r.message}</div></div>`;
   loadReports();
 };
 async function loadReports() {
+  const board = await api("/api/reports/leaderboard");
+  $("#repBoard").innerHTML = board.length ? board.map((b, i) => `<div class="m"><span>${i + 1}.</span><span style="flex:1">${esc(b.name)}</span><b>${b.credits}</b></div>`).join("")
+    : `<div class="sub">Add your name to a report to earn credits (10 per accepted report, 2 per confirmation).</div>`;
   const rs = await api("/api/reports");
-  $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card ${r.kind === "water" ? "crit" : "warn"}"><div class="t">${r.id} · ${r.kind} · ${r.zone}</div>
+  $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card clickable ${r.kind === "water" ? "crit" : "warn"}" data-fly="${r.lng},${r.lat}"><div class="t">${r.id} · ${r.kind} · ${esc(r.zone)} <small class="d">by ${esc(r.reporter || "anonymous")}</small></div>
     <img src="${r.image}" alt="" style="max-width:100%;border-radius:6px"><div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span>${r.alert}</span></div></div>`).join("")
     : `<div class="sub">No student reports yet.</div>`;
 }
@@ -444,6 +527,7 @@ $("#aboutBtn").onclick = async () => {
       <tr><td>Occupancy (Random Forest)</td><td>${m.occupancy.dataset}</td><td>accuracy ${m.occupancy.accuracy}, F1 ${m.occupancy.f1} on ${fmt(m.occupancy.test_rows)} rows</td></tr>
       <tr><td>Leak detector (${m.leak.method})</td><td>${m.leak.dataset}</td><td>${m.leak.events_caught}/${m.leak.leak_events} bursts caught within ${m.leak.catch_window_days} days (median delay ${m.leak.median_delay_days} d); precision ${m.leak.precision} over ${m.leak.flagged_nights} flagged nights</td></tr>
       <tr><td>Energy anomalies</td><td>BDG2 hourly meters</td><td>robust z-score vs hour-of-week baseline + Isolation Forest confirmation</td></tr>
+      ${m.forecast ? `<tr><td>Day-ahead load forecast (${m.forecast.method})</td><td>${m.forecast.dataset}</td><td>MAPE ${m.forecast.mape_pct}% vs ${m.forecast.naive_mape_pct}% for same-hour-last-week, over ${m.forecast.buildings} buildings</td></tr>` : ""}
       <tr><td>Vision</td><td colspan="2">${Object.values(a.models).join(" · ")}</td></tr></table>
     <h3>Which dataset feeds which DSU building</h3>
     <table><tr><th>DSU building</th><th>Source meter</th><th>Scale</th><th>Water</th></tr>
@@ -454,6 +538,80 @@ $("#aboutBtn").onclick = async () => {
     <p class="sub">GenAI: ${Object.entries(a.llm).map(([k, v]) => `${k} ${v ? "✓" : "✗"}`).join(" · ")} · offline rule-based fallback always on.</p>`;
   $("#about").showModal();
 };
+
+// ---------------- QR for the mobile reporter ----------------
+function reportUrl() { return `${location.origin}/report`; }
+function drawQR(el, size) {
+  el.innerHTML = "";
+  if (window.QRCode) new QRCode(el, { text: reportUrl(), width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+  else el.innerHTML = `<a class="btnlink" href="/report" target="_blank">Open the reporter</a>`;
+}
+$("#qrBtn").onclick = () => {
+  drawQR($("#qrBig"), 260);
+  const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+  $("#qrUrl").textContent = reportUrl() + (local ? "  (localhost: phones need the live https link)" : "");
+  $("#qrDlg").showModal();
+};
+
+// ---------------- guided demo (autopilot) ----------------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitAlert(pred, ms = 9000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const a = S?.alerts.find((x) => (x.status === "open" || x.status === "assigned") && pred(x));
+    if (a) return a;
+    await sleep(400);
+  }
+  return null;
+}
+const overview = () => map && map.flyTo({ center: [77.4495, 12.6600], zoom: 16.3, pitch: 55, bearing: -20, speed: 0.7 });
+const STEPS = [
+  ["Verdantix is a live digital twin of DSU Harohalli. Every building is coloured by its live energy and water status.",
+    async () => { await post("/api/scenario/clear"); switchTab("alerts"); overview(); }],
+  ["Night falls. At 2 AM the campus should be nearly idle, so water flow and power draw are suspicious.",
+    () => post("/api/clock", { jump: "night" })],
+  ["A pipe bursts near the Boys Hostel. Minimum-night-flow spots the leak; the pressure drop points to the zone.",
+    async () => { await post("/api/scenario/leak"); const a = await waitAlert((x) => x.rule === "main-leak"); if (a) { flyTo(a.lng, a.lat); markers[a.id]?.togglePopup(); } }],
+  ["One click sends it to Plumbing with a 4-hour deadline. It only closes when CLIP verifies an 'after fix' photo.",
+    async () => { const a = await waitAlert((x) => x.rule === "main-leak" && x.status === "open", 2000); if (a) await post(`/api/alerts/${a.id}/order`); switchTab("alerts"); }],
+  ["The SOE overhead tank's float switch fails: the pump never stops and clean water spills off the roof.",
+    async () => { await post("/api/scenario/tank_overflow"); const a = await waitAlert((x) => x.rule === "tank-overflow"); await selectBuilding("soe-a-block"); $("#tankList").scrollIntoView({ behavior: "smooth" }); if (a) flyTo(a.lng, a.lat); }],
+  ["An AC is left on in an empty classroom after hours. The camera sees nobody, so it is flagged with its rupee cost.",
+    async () => { await post("/api/scenario/ac_night"); $("#roomGrid").scrollIntoView({ behavior: "smooth" }); }],
+  ["Bins: YOLO reads fill level from cameras, the twin forecasts time-to-full and plans an optimised pickup route.",
+    async () => { await post("/api/scenario/bin_overflow"); await sleep(1500); const c = $("#showRoute"); if (!c.checked) { c.checked = true; c.onchange({ target: c }); } overview(); }],
+  ["The GenAI copilot reads the live twin through tools and ranks what to fix first, citing alert IDs.",
+    async () => { switchTab("copilot"); ask("What should facilities fix first today?"); }],
+  ["What-if: raise AC by 1 °C, cut after-hours load by half, retrofit LEDs and shift pumping off-peak. Savings, capex and payback over a full year.",
+    async () => { switchTab("whatif"); $("#sAc").value = 1; $("#sAh").value = 50; $("#sLed").checked = true; $("#sPump").checked = true; $("#sLeak").checked = true; await runSim(); }],
+  ["Students are sensors too. Scan this, snap a photo, and AI checks location, duplicates and the image before it lands on the twin.",
+    async () => { $("#qrBtn").onclick(); }],
+  ["Detect → Verify → Assign → Prove. Open data, ₹0 running cost, and ready for real ESP32 sensors through the ingest API.",
+    async () => { if ($("#qrDlg").open) $("#qrDlg").close(); switchTab("alerts"); overview(); }],
+];
+let auto = null;
+async function runStep(i) {
+  if (!auto) return;
+  clearTimeout(auto.timer);
+  if (i >= STEPS.length) return stopAuto();
+  auto.i = i;
+  $("#capStep").textContent = `Guided demo · ${i + 1} / ${STEPS.length}`;
+  $("#capText").textContent = STEPS[i][0];
+  $("#capNext").textContent = i === STEPS.length - 1 ? "Finish" : "Next ▸";
+  try { await STEPS[i][1](); } catch (e) { console.warn(e); }
+  if (auto && auto.i === i) auto.timer = setTimeout(() => runStep(i + 1), 11000);
+}
+function stopAuto() { if (auto) clearTimeout(auto.timer); auto = null; $("#caption").hidden = true; $("#autoBtn").textContent = "▶ Guided demo"; }
+$("#autoBtn").onclick = () => {
+  if (auto) return stopAuto();
+  auto = { i: 0 };
+  $("#caption").hidden = false;
+  $("#autoBtn").textContent = "■ Stop demo";
+  runStep(0);
+};
+$("#capNext").onclick = () => auto && runStep(auto.i + 1);
+$("#capStop").onclick = stopAuto;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && auto) stopAuto(); if (e.key === "ArrowRight" && auto) runStep(auto.i + 1); });
 
 // ---------------- boot ----------------
 async function boot() {
@@ -469,6 +627,8 @@ async function boot() {
   switchTab("alerts");
   runSim();
   loadReports();
+  drawQR($("#qrSmall"), 96);
+  setInterval(() => { if ($("#tab-students").classList.contains("on")) loadReports().catch(() => {}); }, 8000);
   connect();
 }
 function connect() {

@@ -5,32 +5,41 @@ be sped up (or jumped) for demos. Each dataset is read at the same ISO week
 and weekday in its own year, so weekday/weekend and term-time patterns line up.
 """
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from config import IST_OFFSET_H
+
+IST = timezone(timedelta(hours=IST_OFFSET_H))
+
+
+def ist_now():
+    """Wall-clock time on campus (naive, IST), whatever the server's own time zone is."""
+    return datetime.now(IST).replace(tzinfo=None)
 
 
 class SimClock:
     def __init__(self, speed=60.0):
         self._lock = threading.Lock()
-        self._anchor_real = datetime.now()
-        self._anchor_sim = datetime.now().replace(second=0, microsecond=0)
+        self._anchor_real = ist_now()
+        self._anchor_sim = self._anchor_real.replace(second=0, microsecond=0)
         self.speed = speed
 
     def now(self):
         with self._lock:
-            elapsed = (datetime.now() - self._anchor_real).total_seconds()
+            elapsed = (ist_now() - self._anchor_real).total_seconds()
             return self._anchor_sim + timedelta(seconds=elapsed * self.speed)
 
     def set_speed(self, speed):
         with self._lock:
             cur = self._now_unlocked()
-            self._anchor_real, self._anchor_sim, self.speed = datetime.now(), cur, float(speed)
+            self._anchor_real, self._anchor_sim, self.speed = ist_now(), cur, float(speed)
 
     def jump_to(self, when):
         with self._lock:
-            self._anchor_real, self._anchor_sim = datetime.now(), when
+            self._anchor_real, self._anchor_sim = ist_now(), when
 
     def _now_unlocked(self):
-        elapsed = (datetime.now() - self._anchor_real).total_seconds()
+        elapsed = (ist_now() - self._anchor_real).total_seconds()
         return self._anchor_sim + timedelta(seconds=elapsed * self.speed)
 
 

@@ -9,7 +9,8 @@ from ai.llm import LLMUnavailable, chat
 
 PROMPT = """Write the weekly sustainability report for DSU Harohalli campus facilities from this JSON.
 Sections (markdown headings): Executive summary (3 sentences), What went well, Top issues (cite alert IDs),
-Recommended actions (table: action | owner team | deadline | Rs saved per year | CO2 saved), Student engagement.
+Recommended actions (table: action | owner team | deadline | Rs saved per year | capex Rs | payback years | CO2 saved),
+Student engagement.
 Use only numbers in the JSON. Rupees as Rs. Keep it under 450 words.
 
 DATA:
@@ -21,7 +22,9 @@ def build(twin, reports_desk):
     hist = twin.history_summary(7)
     st = twin.state()
     alerts = [a for a in st["alerts"] if a["status"] in ("open", "assigned", "resolved")]
-    sim_plan = twin.simulate(ac_setpoint_delta=1, after_hours_cut=0.5, led_retrofit=True, fix_leaks=True, solar_kwp=0)
+    sim_plan = twin.simulate(ac_setpoint_delta=1, after_hours_cut=0.5, led_retrofit=True, fix_leaks=True, solar_kwp=0,
+                             smart_pump_schedule=True)
+    sim_plan = {k: v for k, v in sim_plan.items() if k != "assumptions"}
     data = {
         "week_ending": sim.strftime("%d %b %Y"),
         "totals": {"energy_kwh": hist["total_kwh"], "cost_inr": round(hist["total_kwh"] * C.TARIFF_INR_PER_KWH),
@@ -30,6 +33,8 @@ def build(twin, reports_desk):
         "alerts": [{k: a[k] for k in ("id", "kind", "title", "severity", "inr_per_day", "status", "source")} for a in alerts[:15]],
         "work_orders": [{k: o[k] for k in ("id", "team", "status", "deadline")} for o in st["orders"][:10]],
         "student_reports": len(reports_desk.reports),
+        "water_tanks": {t["name"]: {"level_pct": t["level_pct"], "peak_pump_min_today": t["peak_pump_min_today"],
+                                    "overflowing": t["overflow_lph"] > 0} for t in st.get("tanks", {}).values()},
         "interventions_if_applied": sim_plan,
     }
     try:
