@@ -59,7 +59,8 @@ class Vision:
             self.labels = [(cat, p) for cat, ps in ISSUE_PROMPTS.items() for p in ps]
             with torch.no_grad():
                 t = proc(text=[p for _, p in self.labels], return_tensors="pt", padding=True)
-                txt = model.get_text_features(**t)
+                # Project the pooled outputs explicitly; works across transformers 4.x and 5.x.
+                txt = model.text_projection(model.text_model(**t).pooler_output)
                 self._txt = txt / txt.norm(dim=-1, keepdim=True)
             self._clip = (model, proc)
             self.status["clip"] = "openai/clip-vit-base-patch32 (zero-shot)"
@@ -69,7 +70,8 @@ class Vision:
         import torch
         model, proc = self.clip()
         with torch.no_grad():
-            f = model.get_image_features(**proc(images=img, return_tensors="pt"))
+            px = proc(images=img, return_tensors="pt")["pixel_values"]
+            f = model.visual_projection(model.vision_model(pixel_values=px).pooler_output)
         return (f / f.norm(dim=-1, keepdim=True))[0]
 
     def classify(self, img):

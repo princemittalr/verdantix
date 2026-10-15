@@ -106,6 +106,7 @@ h3 small { font: 400 12px var(--body); }
 .slider input { grid-column: 1 / -1; accent-color: var(--accent); }
 .check { display: flex; gap: 8px; margin-bottom: 8px; font-size: 14px; align-items: center; }
 .simout { margin-top: 12px; display: grid; gap: 8px; }
+.simout .m { flex-wrap: nowrap; }
 .big { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .big .stat b { font-size: 22px; color: var(--accent); }
 
