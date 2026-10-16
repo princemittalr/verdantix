@@ -127,6 +127,10 @@
     <div id="isoCal" class="isocal"></div>
     <div class="iso-foot"><span id="isoTotal"></span><span class="iso-key">less <i></i><i></i><i></i><i></i> more</span></div>
   </section>
+    <section class="ov-card co2" aria-label="Carbon from electricity">
+      <div class="ov-row"><b>Carbon from electricity</b><span class="pill prov sim">Estimate</span></div>
+      <div id="co2Body" class="sub" style="margin:8px 0 0">Loading…</div>
+    </section>
     <section class="ov-card board" id="board" aria-label="Green score by building"></section>
   </div>
 
@@ -162,8 +166,10 @@
   </div>
 
   <div class="tab" id="tab-vision">
-    <div class="row">
+    <div class="row camrow">
       <select id="vSource" aria-label="Camera source"><option value="webcam">Webcam</option><option value="video">Video file</option><option value="image">Single image</option></select>
+      <button id="vCamBtn" class="dark" type="button">Start camera</button>
+      <span id="vState" class="camstate" role="status" aria-live="polite">Camera off</span>
       <input type="file" id="vFile" accept="video/*,image/*" hidden>
     </div>
     <label class="cctv"><span><b>Use as CCTV camera</b><small>Problems it sees are reported automatically at this camera's location</small></span>
@@ -264,7 +270,7 @@
 <article class="bcard float" id="bcard" hidden aria-live="polite"></article>
 
 <div class="demo dock float" aria-label="Demo scenarios">
-  <span>Simulate</span>
+  <span>Try a scenario</span>
   <button data-scn="leak">Pipe leak</button>
   <button data-scn="ac_night">AC left on</button>
   <button data-scn="bin_overflow">Bin overflow</button>
@@ -279,6 +285,8 @@
   <div id="walkHud" class="walkhud"></div>
 </div>
 
+<dialog id="scnDlg" class="scndlg" aria-labelledby="scnTitle"><div id="scnBody"></div>
+  <div class="row scn-act"><button class="soft" type="button" onclick="this.closest('dialog').close()">Cancel</button><button class="dark" id="scnRun" type="button">Run simulation</button></div></dialog>
 <dialog id="about"><div id="aboutBody"></div><form method="dialog"><button class="dark">Close</button></form></dialog>
 <dialog id="qrDlg" class="qrdlg"><h2>Spot a problem? Report it.</h2><div id="qrBig"></div><p id="qrUrl"></p>
   <p class="sub">Photo plus your phone's GPS. AI checks it's real, then it appears on the twin within seconds.</p><form method="dialog"><button class="dark">Close</button></form></dialog>

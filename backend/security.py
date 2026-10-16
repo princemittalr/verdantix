@@ -2,7 +2,8 @@
 
 Roles
 - public:   view the twin, submit problem reports, ask the copilot, run what-if (rate limited)
-- operator: facilities staff. Clock and demo controls, assign/dismiss/label alerts, work orders, CCTV feeds.
+- maintainer: maintenance staff (MAINTAINER_TOKEN). Work orders only: acknowledge, start, comment, upload proof.
+- operator: facilities staff / administrator. Clock and demo controls, assign/dismiss/label alerts, work orders, CCTV feeds.
             Sent as the X-Operator header (set OPERATOR_TOKEN on the server; never in frontend code).
 - sensor:   IoT devices posting to /api/ingest or /api/cctv (X-Token = INGEST_TOKEN, or the operator token).
 If OPERATOR_TOKEN is not set, operator checks are OFF (local development) and /api/about says so.
@@ -39,6 +40,25 @@ def require_operator(x_operator: str = Header("")):
     if not is_operator(x_operator):
         raise HTTPException(401, "Operator sign-in needed for this action.")
     return "operator" if C.OPERATOR_TOKEN else "operator (auth off, local dev)"
+
+
+def role_of(token: str) -> str:
+    """Server-side role from the passcode: 'admin', 'maintainer' or 'public'. The client's claim is never trusted."""
+    if is_operator(token):
+        return "admin"
+    if C.MAINTAINER_TOKEN and _eq(token, C.MAINTAINER_TOKEN):
+        return "maintainer"
+    return "public"
+
+
+def require_maintainer(x_operator: str = Header("")):
+    """Work-order actions: maintainers and administrators."""
+    if auth_misconfigured():
+        raise HTTPException(503, "Staff actions are disabled: OPERATOR_TOKEN is not configured on this server.")
+    r = role_of(x_operator)
+    if r == "public":
+        raise HTTPException(401, "Maintainer or operator sign-in needed for this action.")
+    return "operator" if r == "admin" else "maintainer"
 
 
 def require_sensor(x_token: str = Header(""), x_operator: str = Header("")):

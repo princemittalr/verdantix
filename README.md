@@ -79,6 +79,24 @@ Open http://localhost:8000.
 - **Reporter app** (`/report`): installable PWA (Android "Install app", or package as an APK with PWABuilder from the live URL). Pick a category, add a photo (optional) and GPS. Photo reports are verified by AI instantly; reports without a photo are filed as unverified and become verified when 3 people report the same category within 60 m.
 - **CCTV auto-reporting**: `POST /api/cctv/<camera>` with a frame. If the vision model sees garbage, a leak or lights on in an empty room, an alert is raised at that camera's map location; it closes itself after 3 clean frames. Use the Vision tab ("Use as CCTV camera") or `scripts/cctv_agent.py <camera> <webcam|video|rtsp-url>`.
 
+## Three apps, one backend
+
+| App | URL | Who | What they can do (enforced on the server) |
+|---|---|---|---|
+| Admin website | `/` | Facilities admins (`OPERATOR_TOKEN`) | Everything: incidents, work orders, simulations, clock, backup, audit log |
+| Maintainer app | `/maintainer` | Maintenance staff (`MAINTAINER_TOKEN`) | Their work orders: acknowledge, start, notes, after-fix photo; distance and walking directions to the job |
+| Reporter app | `/report` | Students and faculty (no sign-in) | Report a problem with or without a photo, see where they are, track their reports |
+
+The role comes from the passcode on the server (`/api/whoami`), never from the page. Maintainers get 401 on admin actions and 403 on cancelling orders. Both phone apps are installable (PWA); build each APK with PWABuilder from its own URL.
+
+**Location:** both phone apps find the building you're in by point-in-polygon on the campus map, show GPS accuracy, and fall back to picking the place by hand. Campus paths aren't mapped yet, so the maintainer app shows *straight-line* distance (labelled) and opens Google Maps walking directions for the real path.
+
+**Camera:** the Vision tab asks for permission only when you press Start camera, explains each error (blocked, no camera, busy, not https), stops every track on Stop / leaving the tab / hiding the page, and clears all boxes and labels. A session id stops late AI replies from drawing after the camera is off.
+
+**Scenarios:** each Try-a-scenario button opens an explanation first (what it represents, inputs and assumptions, what Verdantix detects, the recommended action, and the impact maths), then runs. Running one twice does not stack a second leak; Clear closes only demo alerts.
+
+**CO₂:** Overview shows CO₂e from electricity only (Scope 2): kWh × 0.727 kg/kWh (CEA CO₂ Baseline Database, FY 2023-24), the top buildings, and the method. The kWh are dataset replay, so it is an estimate, not DSU's measured emissions.
+
 ## Waste MVP features
 
 - **Waste vision** (Vision tab): upload or point a camera at waste; every object gets a box, a material (plastic, paper, glass, metal, organic, e-waste, hazardous, textile, other) and a confidence. Anyone can fix a wrong category from a dropdown; corrections are saved to the audit log as labels for tuning. Each material shows its bin under India's SWM Rules 2016 (green wet, blue dry, red domestic hazardous, e-waste drop point).

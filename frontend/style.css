@@ -700,3 +700,21 @@ body.intro .maptools, body.intro .bcard { opacity: 0; pointer-events: none; }
 .bcard { max-height: calc(100vh - 74px - 156px); }
 @media (max-height: 780px) and (min-width: 1001px) { .bcard { max-height: calc(100vh - 66px - 150px); } }
 @media (max-width: 1000px) { .search { min-width: 0; } .actions { flex: none; } #autoBtn span { display: none; } #autoBtn { width: 46px; justify-content: center; padding: 0; } }
+
+.camrow { align-items: center; }
+.camstate { font-size: 12.5px; color: var(--muted); flex-basis: 100%; }
+.camstate.on { color: #0e6b3b; font-weight: 600; } .camstate.on::before { content: "● "; color: var(--crit); }
+.camstate.wait { color: #8a5207; } .camstate.err { color: var(--crit); font-weight: 600; }
+
+.scndlg { max-width: 560px; }
+.scndlg h2 { margin: 10px 0 4px; }
+.scn-steps { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 10px; }
+.scn-steps li::marker { font-weight: 800; color: var(--accent); }
+.scn-steps p { margin: 3px 0 0; font-size: 14px; color: var(--ink-2); }
+.scn-steps table { margin-top: 4px; }
+.scn-act { justify-content: flex-end; margin-top: 16px; }
+
+.co2-big b { display: block; font: 800 26px var(--font); letter-spacing: -.03em; color: var(--ink); }
+.co2-big span { font-size: 12.5px; color: var(--muted); }
+.co2-row { display: grid; grid-template-columns: 1fr 90px 52px; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--ink); }
+.co2-row b { text-align: right; } .co2 details p { font-size: 12.5px; margin: 6px 0 0; }

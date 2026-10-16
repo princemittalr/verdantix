@@ -133,12 +133,31 @@ const draft = loadDraft();
 $("#f").addEventListener("change", saveDraft);
 $("#note").addEventListener("input", saveDraft);
 
+// Which building the phone is in: point-in-polygon on the campus map (no guessing from IP). Near a boundary, say so.
+const R_E = 6371000, rd = (d) => (d * Math.PI) / 180;
+function meters(a, b) { const dLat = rd(b[1] - a[1]), dLng = rd(b[0] - a[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rd(a[1])) * Math.cos(rd(b[1])) * Math.sin(dLng / 2) ** 2; return 2 * R_E * Math.asin(Math.sqrt(h)); }
+function inside(pt, ring) { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+  const [xi, yi] = ring[i], [xj, yj] = ring[j];
+  if (((yi > pt[1]) !== (yj > pt[1])) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) c = !c; } return c; }
+function showWhere() {
+  if (!pos) return;
+  const acc = Math.round(pos.acc), pt = [pos.lng, pos.lat];
+  if (!campus) return setLoc("ok", `Location found, accurate to ${acc} m`);
+  const polys = campus.features.filter((f) => f.geometry.type === "Polygon" && f.properties.type !== "sports");
+  const hit = polys.find((f) => inside(pt, f.geometry.coordinates[0]));
+  const near = polys.map((f) => ({ f, d: meters(pt, f.properties.center) })).sort((x, y) => x.d - y.d)[0];
+  if (hit && acc <= 40) return setLoc("ok", `You're in ${hit.properties.name} (±${acc} m). Wrong? Pick the place below.`);
+  if (hit) return setLoc("ok", `Probably ${hit.properties.name}; GPS is only ±${acc} m. Check, or pick the place below.`);
+  if (near && near.d < 150) return setLoc("ok", `Near ${near.f.properties.name} (${Math.round(near.d)} m, ±${acc} m). Pick the place if it's wrong.`);
+  setLoc("bad", `You seem to be off the mapped campus (±${acc} m). Pick the place below.`);
+}
 function setLoc(state, text) { $("#loc").className = `loc ${state}`; $("#locTxt").textContent = text; }
 function locate() {
   if (!navigator.geolocation || !window.isSecureContext) { setLoc("bad", "GPS needs the https link. Pick the place below."); return; }
   setLoc("", "Finding your location…");
   navigator.geolocation.getCurrentPosition(
-    (p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; setLoc("ok", `Location found, accurate to ${Math.round(pos.acc)} m`); },
+    (p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }; showWhere(); },
     (e) => setLoc("bad", e.code === 1 ? "Location is blocked. Pick the place below." : "Couldn't get GPS. Pick the place below."),
     { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
 }
@@ -147,6 +166,7 @@ locate();
 
 fetch(API + "/api/campus").then((r) => r.json()).then((g) => {
   campus = g;
+  showWhere();
   $("#zone").innerHTML += g.features.filter((f) => !["camera", "water_meter"].includes(f.properties.type))
     .map((f) => `<option value="${f.properties.id}">${esc(f.properties.name)}</option>`).join("");
   if (draft.zone) $("#zone").value = draft.zone;

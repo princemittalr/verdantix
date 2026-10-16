@@ -1,7 +1,7 @@
 // Verdantix service worker: makes the reporter installable and keeps its screen available on weak campus Wi-Fi.
 // Pages are network-first (always fresh when online); API calls are never cached.
-const CACHE = "vx-shell-v2";
-const SHELL = ["/report", "report.html", "config.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "vx-shell-v3";
+const SHELL = ["/report", "report.html", "/maintainer", "maintainer.html", "config.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL).catch(() => {})).then(() => self.skipWaiting()));

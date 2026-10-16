@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 import config as C
 import store as S
 from ai import copilot, local_llm, report
-from security import client_ip, is_operator, limit, read_upload, require_operator, require_sensor
+from security import client_ip, is_operator, limit, read_upload, require_maintainer, require_operator, require_sensor, role_of
 from twin.engine import CLOSED, FEEDBACK, Twin
 from twin.hotspots import hotspots
 from collections import Counter, deque
@@ -145,7 +145,8 @@ def _get_order(oid):
 # ---------- access ----------
 @app.get("/api/whoami")
 def whoami(x_operator: str = Header("")):
-    return {"operator": is_operator(x_operator), "auth_enabled": bool(C.OPERATOR_TOKEN)}
+    r = role_of(x_operator)
+    return {"operator": r == "admin", "role": r, "auth_enabled": bool(C.OPERATOR_TOKEN)}
 
 
 class SignIn(BaseModel):
@@ -154,11 +155,11 @@ class SignIn(BaseModel):
 
 @app.post("/api/signin", dependencies=[Depends(limit("signin"))])
 def signin(body: SignIn, request: Request):
-    ok = is_operator(body.passcode)
-    audit("signin " + ("ok" if ok else "failed"), "operator", request, actor="?")
-    if not ok:
+    r = role_of(body.passcode)
+    audit("signin " + (r if r != "public" else "failed"), r, request, actor="?")
+    if r == "public":
         raise HTTPException(401, "Wrong passcode.")
-    return {"operator": True}
+    return {"operator": r == "admin", "role": r}
 
 
 # ---------- twin state ----------
@@ -293,8 +294,10 @@ class StatusIn(BaseModel):
 
 
 @app.post("/api/orders/{oid}/status")
-def order_status(oid: str, body: StatusIn, request: Request, who=Depends(require_operator)):
+def order_status(oid: str, body: StatusIn, request: Request, who=Depends(require_maintainer)):
     _get_order(oid)
+    if who == "maintainer" and body.status not in ("acknowledged", "in_progress"):
+        raise HTTPException(403, "Maintainers can acknowledge and start work; cancelling or reopening needs an operator.")
     try:
         o = twin.set_order_status(oid, body.status, who, body.note)
     except ValueError as e:
@@ -304,7 +307,7 @@ def order_status(oid: str, body: StatusIn, request: Request, who=Depends(require
 
 
 @app.post("/api/orders/{oid}/comment")
-def order_comment(oid: str, body: NoteIn, request: Request, who=Depends(require_operator)):
+def order_comment(oid: str, body: NoteIn, request: Request, who=Depends(require_maintainer)):
     _get_order(oid)
     if not body.note.strip():
         raise HTTPException(400, "Write a comment first.")
@@ -314,7 +317,7 @@ def order_comment(oid: str, body: NoteIn, request: Request, who=Depends(require_
 
 
 @app.post("/api/orders/{oid}/proof", dependencies=[Depends(limit("vision"))])
-async def proof(oid: str, request: Request, file: UploadFile = File(...), who=Depends(require_operator)):
+async def proof(oid: str, request: Request, file: UploadFile = File(...), who=Depends(require_maintainer)):
     o = _get_order(oid)
     a = twin.alerts[o.alert_id]
     img = _img(await read_upload(file))
@@ -626,6 +629,11 @@ def report_page():
     return FileResponse(C.FRONTEND / "report.html")
 
 
+@app.get("/maintainer")
+def maintainer_page():
+    return FileResponse(C.FRONTEND / "maintainer.html")
+
+
 # ---------- IoT ingest (ESP32 / MQTT bridge / scripts/fake_sensor.py) ----------
 class ReadingIn(BaseModel):
     sensor: str = Field(max_length=64)
@@ -723,7 +731,11 @@ def get_hotspots():
 
 @app.get("/api/history")
 def history(days: int = 7):
-    return twin.history_summary(max(1, min(days, 60)))
+    h = twin.history_summary(max(1, min(days, 60)))
+    h["co2"] = {"kg_per_kwh": C.GRID_KG_CO2_PER_KWH, "scope": "electricity only (Scope 2, location-based)",
+                "source": "CEA CO2 Baseline Database, weighted average RE-adjusted, FY 2023-24, India grid",
+                "data": "dataset replay rescaled to DSU, not DSU meters"}
+    return h
 
 
 @app.get("/api/health")

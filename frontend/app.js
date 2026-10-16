@@ -603,6 +603,17 @@ function renderAlerts(st) {
 }
 $("#alertFilters").addEventListener("change", (e) => { filt[e.target.name] = e.target.value; if (S) renderAlerts(S); });
 
+// CO₂e from electricity = kWh × grid factor. Electricity only (Scope 2); the twin's kWh are dataset replay, so this is an estimate.
+function renderCo2(h) {
+  const f = h.co2?.kg_per_kwh || 0.727;
+  const rows = Object.values(h.buildings || {}).map((b) => ({ name: b.name, t: (b.kwh * f) / 1000 })).sort((a, b) => b.t - a.t);
+  const total = rows.reduce((a, r) => a + r.t, 0), waste = (h.daily_excess_kwh || []).reduce((a, v) => a + Math.max(v, 0), 0) * f / 1000;
+  $("#co2Body").innerHTML = `<div class="co2-big"><b>${total.toFixed(1)} t CO₂e</b><span>last ${h.days} days · ${(waste).toFixed(1)} t of it from energy above normal</span></div>
+    ${rows.slice(0, 3).map((r) => `<div class="co2-row"><span>${esc(r.name)}</span><div class="bar"><i style="width:${(100 * r.t) / (rows[0].t || 1)}%"></i></div><b>${r.t.toFixed(1)} t</b></div>`).join("")}
+    <details class="tl"><summary>How this is calculated</summary><p>CO₂e = electricity (kWh) × ${f} kg CO₂/kWh. Factor: ${esc(h.co2?.source || "CEA")}. Scope: ${esc(h.co2?.scope || "electricity only")}.
+      The kWh are ${esc(h.co2?.data || "dataset replay")}, so these are estimates, not DSU's measured emissions. DSU's own filing reports 5,891,518 kWh for 2024-25 (≈4,280 t CO₂ at this factor).</p></details>`;
+}
+
 // 3D isometric calendar of daily energy waste (kWh above the model's normal), last 5 weeks.
 async function loadIso() {
   let h;
@@ -629,6 +640,7 @@ async function loadIso() {
   $("#isoCal").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily energy waste over 5 weeks">${polys}</svg>`;
   const tot = vals.reduce((a, b) => a + Math.max(b, 0), 0), worst = Math.max(...vals);
   $("#isoTotal").innerHTML = `<b>${fmt(Math.round(tot))} kWh</b> wasted · worst day ${fmt(Math.round(worst))}`;
+  renderCo2(h);
 }
 
 // Eco advisor: today's priorities and segregation tips, from rules over the live twin.
@@ -745,6 +757,7 @@ function switchTab(name) {
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   $$(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${name}`));
   if (name === "tour" && !$("#tourFrame").src) $("#tourFrame").src = "https://www.dsu.edu.in/virtual-tour/";
+  if (name !== "vision" && vStream) stopCamera("Camera stopped: you left Vision");
   if (name === "copilot") loadAdvisor();
   if (name === "whatif") runRoute().catch(() => {});
 }
@@ -756,9 +769,60 @@ $("#speedSeg").addEventListener("click", async (e) => {
 });
 $("#jumpNight").onclick = safely(async () => { await post("/api/clock", { jump: "night" }); toast("Jumped to 2 AM: watch night-time water and after-hours power"); });
 $("#jumpMorning").onclick = safely(async () => { await post("/api/clock", { jump: "morning" }); toast("Jumped to 9 AM"); });
+// Guided scenario simulator: every scenario explains itself (what, inputs, detection, action, impact maths) before it runs.
+// Inputs are the twin's own simulation constants; results are labelled "Simulated demo" and never treated as real sensor alerts.
+const SCN = {
+  leak: { name: "Water pipe leak", where: "Boys Hostel supply line",
+    what: "A pipe starts leaking. Nobody has reported it; the only clue is water flow that stays high at night.",
+    inputs: [["Leak rate", "600 L/h (simulation input)"], ["Water cost", "₹60/kL (assumed)"], ["Water CO₂", "0.30 kg/kL (pumping + treatment, assumed)"]],
+    detect: "Night flow stays above the learned normal for that hour of the week, so the leak detector raises a critical water alert at the building.",
+    action: "Assign Plumbing (4 h deadline). They find the leak, fix it and upload an after-fix photo.",
+    impact: () => `600 L/h × 24 h = 14.4 kL a day lost ≈ ₹${fmt(Math.round(14.4 * 60))} and ${(14.4 * 0.3).toFixed(1)} kg CO₂ a day.` },
+  ac_night: { name: "AC left on overnight", where: "a classroom in SOE A Block",
+    what: "An air conditioner keeps running after the last class, with nobody in the room.",
+    inputs: [["AC power", "3.2 kW (simulation input)"], ["Hours wasted", "8 h overnight (assumed)"], ["Tariff", "₹8/kWh (assumed)"], ["Grid CO₂", "0.727 kg/kWh (CEA, FY 2023-24)"]],
+    detect: "Room power is high while occupancy is low (camera count or occupancy model), so an energy alert opens for that room.",
+    action: "Assign Electrical, or switch it off remotely if a smart plug or BMS exists. Long term: occupancy auto-off.",
+    impact: () => `3.2 kW × 8 h = 25.6 kWh a night ≈ ₹${fmt(Math.round(25.6 * 8))} and ${(25.6 * 0.727).toFixed(1)} kg CO₂ a night.` },
+  bin_overflow: { name: "Bin overflowing", where: "the food court bin",
+    what: "A bin fills up faster than the pickup schedule, so litter spills around it.",
+    inputs: [["Fill level", "set to 100% (simulation input)"], ["Cost of an overflow", "₹150 a day (assumed clean-up + hygiene)"]],
+    detect: "The bin reads 100% full (sensor, camera or student photo), so a waste alert opens and the smart pickup route includes it.",
+    action: "Assign Housekeeping (6 h). The route simulator suggests collecting only the bins that need it.",
+    impact: () => "Assumed ₹150 a day while it stays overflowing. The real saving is in the route: fewer km and crew-hours (see What-if)." },
+  tank_overflow: { name: "Water tank overflowing", where: "the first campus tank",
+    what: "A tank is almost full and its pump keeps running, so water spills from the overflow pipe.",
+    inputs: [["Start level", "98.5% of capacity (simulation input)"], ["Pump flow", "from the tank's config, e.g. 30,000–45,000 L/h"], ["Water cost", "₹60/kL (assumed)"]],
+    detect: "Level hits 100% while the pump is on, so an overflow alert opens with the litres spilling per hour.",
+    action: "Switch the pump off and fix the float switch; schedule refills at night (cheaper tariff).",
+    impact: () => "Spill rate = pump flow minus demand; the alert shows it live in L/h and ₹ a day." },
+};
+let scnPick = null;
+function openScenario(kind) {
+  const c = SCN[kind]; scnPick = kind;
+  $("#scnBody").innerHTML = `<span class="pill prov sim">Simulated demo</span>
+    <h2>${esc(c.name)}</h2><p class="sub">At ${esc(c.where)}. Running it does not touch real equipment; the alert it creates is labelled as a demo.</p>
+    <ol class="scn-steps">
+      <li><b>What it represents</b><p>${esc(c.what)}</p></li>
+      <li><b>Inputs and assumptions</b><table class="payback">${c.inputs.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table></li>
+      <li><b>What Verdantix detects</b><p>${esc(c.detect)}</p></li>
+      <li><b>Recommended action</b><p>${esc(c.action)}</p></li>
+      <li><b>Potential impact (estimate)</b><p>${esc(c.impact())}</p></li>
+    </ol>`;
+  $("#scnRun").disabled = false; $("#scnRun").textContent = "Run simulation";
+  $("#scnDlg").showModal();
+}
+$("#scnRun").onclick = safely(async () => {
+  $("#scnRun").disabled = true; $("#scnRun").textContent = "Running…";
+  const r = await post(`/api/scenario/${scnPick}`);
+  $("#scnDlg").close();
+  toast(r.already_running ? `${SCN[scnPick].name} is already running. Use Clear to reset it.` : `Simulated: ${SCN[scnPick].name}. Watch for the alert in Alerts.`, 5000);
+  switchTab("alerts");
+});
 $$(".demo button").forEach((b) => (b.onclick = safely(async () => {
-  const r = await post(`/api/scenario/${b.dataset.scn}`);
-  toast(b.dataset.scn === "clear" ? "Demo scenarios cleared" : `Simulated ${r.kind.replace("_", " ")} at ${r.target} (labelled as a demo)`);
+  if (b.dataset.scn !== "clear") return openScenario(b.dataset.scn);
+  const r = await post("/api/scenario/clear");
+  toast(`Demo scenarios reset: ${r.cleared ?? 0} demo alerts closed. Real records are untouched.`);
 })));
 $("#bldSelect").onchange = (e) => selectBuilding(e.target.value, true);
 
@@ -928,13 +992,33 @@ $("#showHot").onchange = async (e) => {
 // ---------------- vision ----------------
 let vTimer = null, vStream = null;
 const vVideo = $("#vVideo"), vImg = $("#vImg"), vCanvas = $("#vCanvas");
-$("#vSource").onchange = async (e) => {
+// Camera lifecycle: explicit start (asks permission), full stop (every track, timers, overlays), and a session id so a
+// late AI reply from a stopped session can never draw on screen again.
+let vSession = 0;
+function camState(text, kind = "") { const el = $("#vState"); el.textContent = text; el.className = `camstate ${kind}`; }
+function clearOverlay() {
+  const g = vCanvas.getContext("2d"); g.clearRect(0, 0, vCanvas.width, vCanvas.height);
+  $("#vOut").innerHTML = "";
+}
+function stopCamera(reason = "Camera off") {
+  vSession++;   // invalidates any request still in flight
   stopLive();
-  if (e.target.value === "webcam") return startWebcam();
   if (vStream) { vStream.getTracks().forEach((t) => t.stop()); vStream = null; }
+  vVideo.pause(); vVideo.srcObject = null;
+  clearOverlay();
+  $("#vCamBtn").textContent = "Start camera";
+  camState(reason);
+}
+$("#vCamBtn").onclick = () => (vStream ? stopCamera() : startWebcam());
+$("#vSource").onchange = async (e) => {
+  stopCamera();
+  if (e.target.value === "webcam") return;
+  vVideo.removeAttribute("src");
   $("#vFile").accept = e.target.value === "video" ? "video/*" : "image/*";
   $("#vFile").click();
 };
+document.addEventListener("visibilitychange", () => { if (document.hidden && vStream) stopCamera("Camera stopped: tab hidden"); });
+addEventListener("pagehide", () => { if (vStream) stopCamera(); });
 $("#vFile").onchange = (e) => {
   const f = e.target.files[0];
   if (!f) return;
@@ -943,10 +1027,31 @@ $("#vFile").onchange = (e) => {
   else { vVideo.hidden = true; vImg.hidden = false; vImg.src = url; }
 };
 async function startWebcam() {
+  if (vStream) return true;   // never two streams
+  if (!window.isSecureContext) { camState("Camera needs https (or localhost). Open the site over https.", "err"); return false; }
+  if (!navigator.mediaDevices?.getUserMedia) { camState("This browser can't use a camera here. Pick a video or image instead.", "err"); return false; }
+  const sid = ++vSession;
+  camState("Asking for camera permission…", "wait");
+  $("#vCamBtn").disabled = true;
   try {
-    vStream = await navigator.mediaDevices.getUserMedia({ video: { width: 960 } });
-    vImg.hidden = true; vVideo.hidden = false; vVideo.src = ""; vVideo.srcObject = vStream;
-  } catch { toast("Camera not available. Pick a demo video or image instead."); }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 960 } }, audio: false });
+    if (sid !== vSession) { stream.getTracks().forEach((t) => t.stop()); return false; }   // stopped while asking
+    vStream = stream;
+    vImg.hidden = true; vVideo.hidden = false; vVideo.removeAttribute("src"); vVideo.srcObject = vStream;
+    await vVideo.play().catch(() => {});
+    vStream.getVideoTracks()[0]?.addEventListener("ended", () => stopCamera("Camera disconnected"));
+    $("#vCamBtn").textContent = "Stop camera";
+    camState("Camera on", "on");
+    return true;
+  } catch (e) {
+    const why = { NotAllowedError: "Camera permission was blocked. Allow it from the lock icon in the address bar, then press Start camera again.",
+                  NotFoundError: "No camera found on this device. Pick a video or image instead.",
+                  NotReadableError: "The camera is busy in another app. Close it there and try again.",
+                  OverconstrainedError: "This camera doesn't support the requested size.", SecurityError: "The browser blocked camera access on this page." }[e.name]
+      || `Camera error (${e.name || "unknown"}).`;
+    camState(why, "err");
+    return false;
+  } finally { $("#vCamBtn").disabled = false; }
 }
 function frameBlob() {
   const src = vImg.hidden ? vVideo : vImg;
@@ -958,6 +1063,7 @@ function frameBlob() {
   return new Promise((res) => c.toBlob(res, "image/jpeg", 0.8)).then((b) => ({ blob: b, w, h }));
 }
 async function analyseOnce() {
+  const sid = vSession;
   const f = await frameBlob();
   if (!f) return toast("No frame yet. Start the webcam or load a video/image.");
   const fd = new FormData();
@@ -965,6 +1071,7 @@ async function analyseOnce() {
   const cam = $("#vCam").value;
   if (cam) {   // CCTV mode: the server decides and raises/clears alerts at the camera's location
     const r = await api(`/api/cctv/${cam}`, { method: "POST", body: fd });
+    if (sid !== vSession) return;   // camera was stopped while this frame was being checked
     drawBoxes({ objects: r.objects, size: r.size }, f.w, f.h);
     const name = $("#vCam").selectedOptions[0].textContent;
     $("#vOut").innerHTML = `<div class="cctvres ${r.action.startsWith("alert") ? "hit" : ""}"><b>${esc(name)}</b>:
@@ -977,6 +1084,7 @@ async function analyseOnce() {
   fd.append("room", $("#vRoom").value);
   fd.append("bin", $("#vBin").value);
   const r = await api("/api/vision/analyze", { method: "POST", body: fd });
+  if (sid !== vSession) return;   // stale result from a stopped session: ignore it
   let n = 0;
   (r.objects || []).forEach((o) => { if (o.category) o.n = ++n; });
   drawBoxes(r, f.w, f.h);
@@ -1027,10 +1135,11 @@ function drawBoxes(r, w, h) {
     g.fillStyle = col; g.fillText(tag, ox + x1 * s + 4, oy + y1 * s + 13);
   }
 }
-function stopLive() { clearInterval(vTimer); vTimer = null; $("#vStart").textContent = "Start live analysis"; }
-$("#vStart").onclick = () => {
+function stopLive() { clearInterval(vTimer); vTimer = null; $("#vStart").textContent = "Start live analysis"; if (vStream) camState("Camera on", "on"); }
+$("#vStart").onclick = async () => {
   if (vTimer) return stopLive();
-  if (!vStream && vImg.hidden && !vVideo.src) startWebcam();
+  if (!vStream && vImg.hidden && !vVideo.getAttribute("src") && !(await startWebcam())) return;
+  camState("Camera on · analysing every 1.5 s", "on");
   let busy = false;
   vTimer = setInterval(async () => { if (busy) return; busy = true; try { await analyseOnce(); } catch (e) { toast(e.message); } busy = false; }, 1500);
   $("#vStart").textContent = "Stop live analysis";

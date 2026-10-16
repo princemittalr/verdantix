@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 TMP = tempfile.mkdtemp(prefix="vx-test-")
-os.environ.update(VERDANTIX_LITE="1", OPERATOR_TOKEN="test-op", INGEST_TOKEN="test-sensor", GEMINI_API_KEY="",
+os.environ.update(VERDANTIX_LITE="1", OPERATOR_TOKEN="test-op", INGEST_TOKEN="test-sensor", MAINTAINER_TOKEN="test-maint", GEMINI_API_KEY="",
                   GROQ_API_KEY="", VERDANTIX_DB=str(Path(TMP) / "t.db"), RATE_LIMIT_SCALE="20")
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -377,3 +377,36 @@ class Operations(Base):
         a = self.A.twin.alerts[r["alert"]]
         self.assertTrue(a.evidence["needs_human_check"])
         self.assertIn("confirm on site", a.detail)
+
+
+class Roles(Base):
+    """Maintainer role is decided by the server from the passcode and can only touch work orders."""
+    MAINT = {"X-Operator": "test-maint"}
+
+    def test_roles_resolved_server_side(self):
+        self.assertEqual(self.c.get("/api/whoami", headers=self.MAINT).json()["role"], "maintainer")
+        self.assertEqual(self.c.get("/api/whoami", headers=OP).json()["role"], "admin")
+        self.assertEqual(self.c.get("/api/whoami", headers={"X-Operator": "admin"}).json()["role"], "public")
+
+    def test_maintainer_limits(self):
+        self.assertEqual(self.c.post("/api/scenario/leak", headers=self.MAINT).status_code, 401)   # admin only
+        self.assertEqual(self.c.get("/api/backup", headers=self.MAINT).status_code, 401)
+        lng, lat = next(iter(self.A.twin.campus.buildings.values()))["center"]
+        aid = self.c.post("/api/reports", data={"lat": lat, "lng": lng, "category": "water", "note": "role test"}).json()["alert"]
+        oid = self.c.post(f"/api/alerts/{aid}/order", json={}, headers=OP).json()["id"]
+        self.assertEqual(self.c.post(f"/api/orders/{oid}/status", json={"status": "acknowledged"}).status_code, 401)
+        self.assertEqual(self.c.post(f"/api/orders/{oid}/status", json={"status": "acknowledged"}, headers=self.MAINT).status_code, 200)
+        self.assertEqual(self.c.post(f"/api/orders/{oid}/status", json={"status": "cancelled"}, headers=self.MAINT).status_code, 403)
+        self.assertEqual(self.c.post(f"/api/orders/{oid}/comment", json={"note": "on my way"}, headers=self.MAINT).status_code, 200)
+
+    def test_scenario_not_stacked_twice(self):
+        self.c.post("/api/scenario/clear", headers=OP)
+        self.c.post("/api/scenario/leak", headers=OP)
+        r = self.c.post("/api/scenario/leak", headers=OP).json()
+        self.assertTrue(r.get("already_running"))
+        self.assertEqual(sum(1 for sc in self.A.twin.scenarios if sc["kind"] == "leak"), 1)
+
+    def test_history_has_co2_method(self):
+        h = self.c.get("/api/history?days=7").json()
+        self.assertEqual(h["co2"]["kg_per_kwh"], 0.727)
+        self.assertIn("CEA", h["co2"]["source"])

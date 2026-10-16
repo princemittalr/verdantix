@@ -29,7 +29,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 LOCAL_LLM = os.getenv("LOCAL_LLM", "Qwen/Qwen2.5-1.5B-Instruct")
 
 # Impact constants (editable; shown on the "Assumptions" panel).
-GRID_KG_CO2_PER_KWH = 0.71   # CEA CO2 Baseline Database, all-India grid (approx.)
+GRID_KG_CO2_PER_KWH = 0.727  # CEA CO2 Baseline Database: weighted average, RE-adjusted, FY 2023-24 (0.727 tCO2/MWh)
 TARIFF_INR_PER_KWH = 8.0     # assumed HT educational tariff, Karnataka
 WATER_INR_PER_KL = 60.0      # assumed blended BWSSB / tanker cost
 # Collection route simulator: one documented cost method, applied identically to both routes.
@@ -93,6 +93,7 @@ VISION_MODEL = os.getenv("VISION_MODEL", GEMINI_MODEL)
 
 # Access control (see backend/security.py). Set both on any public deployment.
 OPERATOR_TOKEN = os.getenv("OPERATOR_TOKEN", "")   # facilities staff passcode (X-Operator header)
+MAINTAINER_TOKEN = os.getenv("MAINTAINER_TOKEN", "")  # maintenance staff: work orders only (X-Operator header)
 INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")       # sensors / CCTV agents (X-Token header); falls back to OPERATOR_TOKEN
 # Production fails closed: on Render (RENDER is set by the platform) or with VERDANTIX_ENV=production, a missing
 # OPERATOR_TOKEN disables privileged actions instead of opening them to everyone. Local development stays open.

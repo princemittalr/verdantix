@@ -220,6 +220,9 @@ class Twin:
     def add_scenario(self, kind, target=None):
         sim = self.clock.now()
         with self.lock:
+            same = next((sc for sc in self.scenarios if sc["kind"] == kind and (target is None or sc["target"] == target)), None)
+            if same:   # clicking twice must not stack a second leak / AC on top of the first
+                return {"kind": kind, "target": same["target"], "already_running": True}
             if kind == "leak":
                 target = target or "boys-hostel"
                 self.scenarios.append({"kind": "leak", "target": target, "lph": 600.0, "start": sim})
