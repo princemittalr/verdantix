@@ -129,6 +129,53 @@ function beaconShape(lng, lat, r = 9, n = 20) {
 }
 let orbiting = false, is3D = true, campusView = null;
 
+// ---------------- cinematic intro: the live campus is the hero ----------------
+const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function introView() {
+  const W = innerWidth, H = innerHeight, mobile = W <= 1000;
+  const padding = mobile ? { top: 40, bottom: Math.round(H * 0.58), left: 20, right: 20 }
+                         : { top: 70, bottom: 70, left: Math.round(W * 0.46), right: 40 };
+  return { center: campusView.center, zoom: campusView.zoom + (mobile ? -0.4 : 0.15), pitch: 60, bearing: -55, padding };
+}
+let spinRaf = 0;
+function spin(on) {
+  cancelAnimationFrame(spinRaf);
+  if (!on || calm) return;
+  let last = performance.now();
+  const step = (t) => { map.setBearing(map.getBearing() + (t - last) * 0.0025); last = t; spinRaf = requestAnimationFrame(step); };
+  spinRaf = requestAnimationFrame(step);
+}
+function enterCampus(then) {
+  try { sessionStorage.setItem("vx-entered", "1"); } catch {}
+  spin(false);
+  document.body.classList.remove("intro");
+  if (map && campusView) map.flyTo({ ...campusView, duration: calm ? 0 : 2600, essential: false });
+  if (then) setTimeout(then, calm ? 50 : 2700);
+}
+function showIntro() {
+  if (orbiting) toggleOrbit(false);
+  document.body.classList.add("intro");
+  if (map && campusView) { map.flyTo({ ...introView(), duration: calm ? 0 : 1800 }); setTimeout(() => spin(true), calm ? 0 : 1850); }
+  $("#introEnter").focus();
+}
+$("#introEnter").onclick = () => enterCampus();
+$("#introDemo").onclick = () => enterCampus(() => $("#autoBtn").click());
+$("#introTour").onclick = () => enterCampus(() => openWalk());
+$("#brandBtn").onclick = showIntro;
+$("#brandBtn").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showIntro(); } };
+document.addEventListener("keydown", (e) => {
+  if (!document.body.classList.contains("intro")) return;
+  if ((e.key === "Enter" && e.target === document.body) || e.key === "Escape") enterCampus();
+});
+function renderIntro(st) {
+  if (!document.body.classList.contains("intro")) return;
+  const k = st.kpis;
+  $("#iScore").textContent = k.green_score;
+  $("#iOpen").textContent = k.open_alerts;
+  $("#iRisk").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)}` : "₹0";
+  $("#iBlds").textContent = Object.keys(st.buildings).length;
+}
+
 // Fit the buildings (not the empty fields around them) into the part of the map the panels don't cover.
 function frameCampus() {
   const pts = [];
@@ -169,6 +216,7 @@ async function initMap() {
     map.setMaxBounds([[bounds[0][0] - padLng, bounds[0][1] - padLat], [bounds[1][0] + padLng, bounds[1][1] + padLat]]);
     campusView = frameCampus();
     map.jumpTo(campusView);
+    if (document.body.classList.contains("intro")) { map.jumpTo(introView()); spin(true); }
     map.setMinZoom(Math.max(campusView.zoom - 1.2, 14));
     let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { campusView = frameCampus(); map.setPadding(campusView.padding); }, 250); });
     map.on("move", () => { if (!declutter.raf) declutter.raf = requestAnimationFrame(declutter); });
@@ -409,6 +457,7 @@ function render(st) {
   $("#iot").hidden = !st.live_sensors;
   $("#iot").textContent = `${st.live_sensors} live sensor${st.live_sensors === 1 ? "" : "s"}`;
   announce(st);
+  renderIntro(st);
   renderBoard(st);
   renderAlerts(st);
   renderBuilding(st);

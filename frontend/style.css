@@ -433,3 +433,44 @@ dialog form { margin-top: 16px; display: flex; justify-content: flex-end; }
 .adv li small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .adv-seg .dotc { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .adv li a { color: var(--ink); text-decoration: none; } .adv li a:hover { color: var(--accent); }
+
+/* ---- cinematic intro: the live 3D campus is the hero; the dashboard UI waits behind ---- */
+.intro-screen { position: fixed; inset: 0; z-index: 40; display: none; pointer-events: none;
+  background: linear-gradient(90deg, rgba(233,235,241,.97) 0%, rgba(233,235,241,.9) 36%, rgba(233,235,241,0) 62%); }
+body.intro .intro-screen { display: block; animation: introIn .9s ease both; }
+body.intro .topbar, body.intro .panel, body.intro .rightcol, body.intro .demo, body.intro .maplibregl-ctrl-bottom-right,
+body.intro .toast { opacity: 0; pointer-events: none; }
+.topbar, .panel, .rightcol, .demo { transition: opacity .7s ease .5s; }
+.intro-copy { pointer-events: auto; position: absolute; left: clamp(24px, 6vw, 96px); top: 50%; transform: translateY(-50%); width: min(560px, 42vw); }
+.eyebrow { display: flex; align-items: center; gap: 10px; font: 600 13px var(--font); color: var(--ink-2); letter-spacing: .02em; margin: 0 0 22px; }
+.eyebrow .mark { width: 26px; height: 26px; padding: 6px; border-radius: 8px; }
+.intro-copy h1 { font: 800 clamp(44px, 6.4vw, 92px)/.94 var(--font); letter-spacing: -.045em; margin: 0 0 22px; color: var(--ink); }
+.lede { font: 450 clamp(15px, 1.25vw, 18px)/1.55 var(--font); color: var(--ink-2); margin: 0 0 26px; max-width: 34em; }
+.intro-stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 6px 26px; margin: 0 0 30px; }
+.intro-stats dt { white-space: nowrap; }
+.intro-stats div { border-left: 2px solid var(--line); padding-left: 12px; }
+.intro-stats dt { font: 600 11.5px var(--font); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.intro-stats dd { margin: 2px 0 0; font: 750 26px var(--font); letter-spacing: -.02em; color: var(--ink); }
+.intro-cta { display: flex; flex-wrap: wrap; gap: 6px 4px; align-items: center; }
+.big-btn { padding: 15px 22px; font-size: 15px; border-radius: var(--r-pill); box-shadow: 0 10px 30px -8px rgba(22,26,44,.45); }
+.big-btn svg { transform: rotate(180deg); }
+.ghost-btn { background: transparent; border: 0; padding: 12px 14px; color: var(--ink); font-size: 14px; border-radius: var(--r-pill); }
+.ghost-btn:hover { background: rgba(22,26,44,.06); }
+.intro-foot { margin: 34px 0 0; font-size: 12px; color: var(--muted); max-width: 40em; line-height: 1.5; }
+.intro-foot a { color: var(--accent); font-weight: 600; }
+.intro-hint { position: absolute; right: 28px; bottom: 22px; margin: 0; font: 600 12px var(--font); color: var(--ink-2);
+  background: rgba(255,255,255,.75); padding: 7px 12px; border-radius: var(--r-pill); }
+.brand[role=button] { cursor: pointer; }
+@keyframes introIn { from { opacity: 0; } to { opacity: 1; } }
+@media (max-height: 780px) and (min-width: 1001px) {
+  .intro-copy h1 { font-size: clamp(40px, 5.4vw, 72px); margin-bottom: 16px; } .eyebrow { margin-bottom: 14px; }
+  .lede { margin-bottom: 18px; } .intro-stats { margin-bottom: 20px; } .intro-foot { margin-top: 20px; }
+}
+@media (max-width: 1000px) {
+  .intro-screen { background: linear-gradient(0deg, rgba(233,235,241,.98) 0%, rgba(233,235,241,.95) 52%, rgba(233,235,241,0) 72%); }
+  .intro-copy { top: auto; bottom: 22px; transform: none; left: 18px; right: 18px; width: auto; }
+  .intro-copy h1 { font-size: 42px; margin-bottom: 12px; } .lede { font-size: 14.5px; margin-bottom: 16px; }
+  .intro-stats { grid-template-columns: repeat(2, auto); gap: 8px 24px; margin-bottom: 18px; } .intro-stats dd { font-size: 21px; }
+  .intro-foot { margin-top: 16px; font-size: 11px; } .intro-hint { display: none; } .ghost-btn { padding: 10px 8px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { body.intro .intro-screen { animation: none; } .topbar, .panel, .rightcol, .demo { transition: none; } }
