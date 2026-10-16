@@ -416,36 +416,70 @@ class Twin:
                       "lng": lng, "lat": lat, "status": "crit" if fill >= 95 else "warn" if fill >= 75 else "ok"}
         return out
 
-    def pickup_route(self, sim):
+    def pickup_route(self, sim, pickups_per_day=2):
+        """Collection route simulator: a fixed round that empties every bin vs a smart round that only visits
+        bins that need it (fill >= 60% or full within 3 h), ordered by nearest neighbour + 2-opt.
+        Both are closed tours from the depot, measured and costed with the same documented method (config.ROUTE)."""
+        R = C.ROUTE
         bins = self.bin_state(sim)
-        todo = [b for b, s in bins.items() if s["fill"] >= 60 or s["eta_full_h"] <= 3]
-        pos = self.campus.location("meter-main-inlet")
-        route = []
-        while todo:
-            nxt = min(todo, key=lambda b: haversine_m(*pos, bins[b]["lng"], bins[b]["lat"]))
-            route.append(nxt)
-            pos = (bins[nxt]["lng"], bins[nxt]["lat"])
-            todo.remove(nxt)
         depot = list(self.campus.location("meter-main-inlet"))
-        loc = {b: [bins[b]["lng"], bins[b]["lat"]] for b in route}
+        loc = {b: [s["lng"], s["lat"]] for b, s in bins.items()}
 
         def length(order):
-            pts = [depot] + [loc[b] for b in order]
+            pts = [depot] + [loc[b] for b in order] + [depot]
             return sum(haversine_m(*a, *b) for a, b in zip(pts, pts[1:]))
 
-        greedy = length(route)
-        improved = True
-        while improved:  # 2-opt: reverse any segment that shortens the walk
-            improved = False
-            for i in range(len(route) - 1):
-                for k in range(i + 1, len(route)):
-                    cand = route[:i] + route[i:k + 1][::-1] + route[k + 1:]
-                    if length(cand) < length(route) - 0.5:
-                        route, improved = cand, True
-        coords = [depot] + [loc[b] for b in route]
-        dist = length(route)
-        return {"stops": route, "coords": coords, "distance_m": round(dist), "greedy_m": round(greedy),
-                "method": "nearest neighbour + 2-opt"}
+        def two_opt(route):
+            improved = True
+            while improved:  # reverse any segment that shortens the tour
+                improved = False
+                for i in range(len(route) - 1):
+                    for k in range(i + 1, len(route)):
+                        cand = route[:i] + route[i:k + 1][::-1] + route[k + 1:]
+                        if length(cand) < length(route) - 0.5:
+                            route, improved = cand, True
+            return route
+
+        def cost(order):
+            m = length(order) * R["road_factor"]
+            km = m / 1000
+            hours = km / R["speed_kmh"] + len(order) * R["stop_min"] / 60
+            inr = km * R["cart_inr_per_km"] + hours * R["crew_inr_per_h"]
+            co2 = km * R["cart_kwh_per_km"] * C.GRID_KG_CO2_PER_KWH
+            return {"stops": order, "coords": [depot] + [loc[b] for b in order] + [depot], "distance_m": round(m),
+                    "minutes": round(hours * 60), "inr": round(inr, 1), "co2_kg": round(co2, 2),
+                    "overflowing": sum(1 for b in order if bins[b]["fill"] >= 95)}
+
+        basic = sorted(bins)   # the fixed schedule: every bin, same order every round
+        todo = [b for b, s in bins.items() if s["fill"] >= R["collect_fill_pct"] or s["eta_full_h"] <= R["collect_eta_h"]]
+        pos, smart = depot, []
+        while todo:   # nearest neighbour, then 2-opt
+            nxt = min(todo, key=lambda b: haversine_m(*pos, *loc[b]))
+            smart.append(nxt)
+            pos = loc[nxt]
+            todo.remove(nxt)
+        greedy = length(smart)
+        smart = two_opt(smart)
+        b_, s_ = cost(basic), cost(smart)
+        skipped = [{"bin": b, "fill": bins[b]["fill"], "eta_full_h": bins[b]["eta_full_h"]} for b in basic if b not in smart]
+        rounds = pickups_per_day * 365
+        save = {k: round(b_[k] - s_[k], 1) for k in ("distance_m", "minutes", "inr", "co2_kg")}
+        return {
+            "basic": b_, "smart": s_, "skipped": skipped, "saved_per_round": save,
+            "saved_per_year": {"km": round(save["distance_m"] * rounds / 1000), "hours": round(save["minutes"] * rounds / 60),
+                               "inr": round(save["inr"] * rounds), "co2_kg": round(save["co2_kg"] * rounds)},
+            "pct_shorter": round(100 * save["distance_m"] / b_["distance_m"], 1) if b_["distance_m"] else 0,
+            "rounds_per_year": rounds,
+            "method": {"distance": f"haversine between bins x {R['road_factor']} path factor, closed tour from the depot",
+                       "order": "basic: fixed order, every bin; smart: nearest neighbour + 2-opt over bins that need it",
+                       "rule": f"smart collects bins >= {R['collect_fill_pct']}% full or full within {R['collect_eta_h']} h",
+                       "cost": f"km x Rs {R['cart_inr_per_km']}/km + crew time x Rs {R['crew_inr_per_h']}/h "
+                               f"({R['speed_kmh']} km/h, {R['stop_min']:g} min per bin)",
+                       "co2": f"{R['cart_kwh_per_km']} kWh/km x {C.GRID_KG_CO2_PER_KWH} kg CO2/kWh",
+                       "note": "Assumed constants, the same for both routes; a projection based on the twin's bin fill model."},
+            # backwards compatible fields (map layer, guided demo)
+            "stops": s_["stops"], "coords": s_["coords"], "distance_m": s_["distance_m"], "greedy_m": round(greedy * R["road_factor"]),
+        }
 
     # ---------- incident timeline ----------
     def log(self, item, event, by="system", detail=""):
@@ -919,6 +953,24 @@ class Twin:
                 "total_water_kl": round(sum(v["water_kl"] for v in out.values()), 1)}
 
     # ---------- what-if simulator ----------
+    def _before_after(self, total_kwh, kwh_saved, leak_kl, inr_saved, overflow_hours, bins):
+        """Before = this campus over the replayed year as it runs today; after = with the chosen changes."""
+        water_kl = float(self.buildings.xs("water_l", axis=1, level=1).sum().sum()) / 1000
+        before = {"energy_kwh": total_kwh, "water_kl": water_kl,
+                  "cost_inr": total_kwh * C.TARIFF_INR_PER_KWH + water_kl * C.WATER_INR_PER_KL,
+                  "co2_t": (total_kwh * C.GRID_KG_CO2_PER_KWH + water_kl * C.WATER_KG_CO2_PER_KL) / 1000,
+                  "bin_overflow_h": max(0.0, 6.0 - 2.5 * (2 - 1)) * bins * 365}
+        after = {"energy_kwh": total_kwh - kwh_saved, "water_kl": water_kl - leak_kl, "cost_inr": before["cost_inr"] - inr_saved,
+                 "co2_t": before["co2_t"] - (kwh_saved * C.GRID_KG_CO2_PER_KWH + leak_kl * C.WATER_KG_CO2_PER_KL) / 1000,
+                 "bin_overflow_h": overflow_hours}
+        rows = []
+        for k, label, unit in (("energy_kwh", "Grid energy", "kWh/yr"), ("cost_inr", "Energy + water bill", "Rs/yr"),
+                               ("co2_t", "CO2", "t/yr"), ("water_kl", "Water", "kL/yr"), ("bin_overflow_h", "Bin overflow", "hours/yr")):
+            b, a = before[k], after[k]
+            rows.append({"key": k, "label": label, "unit": unit, "before": round(b, 1), "after": round(a, 1),
+                         "change": round(a - b, 1), "pct": round(100 * (a - b) / b, 1) if b else 0.0})
+        return rows
+
     def simulate(self, ac_setpoint_delta=0.0, after_hours_cut=0.0, led_retrofit=False, fix_leaks=False,
                  solar_kwp=0.0, pickups_per_day=2, smart_pump_schedule=False):
         """Annualised savings from interventions, computed over a full year of replayed data."""
@@ -998,6 +1050,7 @@ class Twin:
             "baseline_kwh_year": round(total_kwh),
             "pct_energy_saved": round(100 * kwh_saved / total_kwh, 1) if total_kwh else 0,
             "bin_overflow_hours_year": round(overflow_hours),
+            "before_after": self._before_after(total_kwh, kwh_saved, leak_kl, total_inr, overflow_hours, bins),
             "assumptions": {"ac_share": round(ac_share, 2), "light_share": round(light_share, 2),
                             "ac_saving_per_deg": C.AC_SAVING_PER_DEG, "tariff": C.TARIFF_INR_PER_KWH,
                             "grid_factor": C.GRID_KG_CO2_PER_KWH, "solar_yield": C.SOLAR_KWH_PER_KWP_DAY},

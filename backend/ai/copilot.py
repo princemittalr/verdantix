@@ -94,7 +94,9 @@ def make_handlers(twin, operator=False):
 
     def bins_and_route():
         sim = twin.clock.now()
-        return {"bins": twin.bin_state(sim), "route": twin.pickup_route(sim)}
+        r = twin.pickup_route(sim)
+        return {"bins": twin.bin_state(sim), "route": {k: r[k] for k in ("stops", "distance_m", "saved_per_round", "saved_per_year",
+                                                                          "pct_shorter", "skipped", "method")}}
 
     def create_work_order(alert_id, note=""):
         if not operator:

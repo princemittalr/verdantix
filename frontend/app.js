@@ -214,6 +214,9 @@ async function initMap() {
                    paint: { "circle-radius": ["match", ["get", "type"], "bin", 7, 5],
                             "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#ffffff", "water_meter", "#3e6fe0", "#9aa0b4"],
                             "circle-stroke-color": ["match", ["get", "type"], "camera", "#3a3f57", "#ffffff"], "circle-stroke-width": ["match", ["get", "type"], "camera", 2.5, 2] } });
+    map.addSource("route-basic", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "route-basic", type: "line", source: "route-basic", layout: { visibility: "none", "line-cap": "round" },
+                   paint: { "line-color": "#8a90a6", "line-width": 3, "line-opacity": 0.7, "line-dasharray": [0.6, 1.6] } });
     map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "route", type: "line", source: "route", layout: { visibility: "none" },
                    paint: { "line-color": "#3e5bf2", "line-width": 4, "line-dasharray": [1.5, 1] } });
@@ -545,6 +548,18 @@ function renderAlerts(st) {
 }
 $("#alertFilters").addEventListener("change", (e) => { filt[e.target.name] = e.target.value; if (S) renderAlerts(S); });
 
+// Eco advisor: today's priorities and segregation tips, from rules over the live twin.
+async function loadAdvisor() {
+  let a;
+  try { a = await api("/api/advisor"); } catch { return; }
+  $("#advisor").innerHTML = `<div class="adv-head"><b>Eco advisor</b><span>today's priorities · ${nice(a.time)}</span><button class="soft" id="advRefresh">Refresh</button></div>
+    ${a.priorities.length ? `<ol class="adv">${a.priorities.map((p) => `<li class="${p.level}"><span>${p.alert ? `<a href="#" data-alertlink="${p.alert}">${esc(p.text)}</a>` : esc(p.text)}</span><small>${esc(p.why)}</small></li>`).join("")}</ol>`
+      : `<div class="sub">Nothing urgent: bins are below 60%, no hazardous waste and no overdue orders.</div>`}
+    <div class="adv-seg"><b>Segregation tips</b>${a.segregation.map((g) => `<div><span class="dotc" style="background:${MAT_COLOR[g.category] || "#ccc"}"></span><b>${esc(g.category)}</b> → ${esc(g.bin)}<small>${esc(g.tip)}</small></div>`).join("")}</div>
+    <details class="tl"><summary>How the advisor decides</summary><div class="sub">${esc(a.method)}</div></details>`;
+  $("#advRefresh").onclick = loadAdvisor;
+}
+
 // Recurring hotspots: where problems keep coming back, when they usually start, and when to patrol.
 const nice = (iso) => iso ? new Date(iso).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
 async function loadHotspots() {
@@ -632,6 +647,8 @@ function switchTab(name) {
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   $$(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${name}`));
   if (name === "tour" && !$("#tourFrame").src) $("#tourFrame").src = "https://www.dsu.edu.in/virtual-tour/";
+  if (name === "copilot") loadAdvisor();
+  if (name === "whatif") runRoute().catch(() => {});
 }
 $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) switchTab(b.dataset.tab); });
 $("#speedSeg").addEventListener("click", async (e) => {
@@ -734,12 +751,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && walkId) 
 $("#orbitBtn").onclick = () => toggleOrbit();
 $("#homeBtn").onclick = () => resetView();
 $("#showRoute").onchange = async (e) => {
-  map.setLayoutProperty("route", "visibility", e.target.checked ? "visible" : "none");
-  if (e.target.checked) {
-    const r = await api("/api/route");
-    map.getSource("route").setData({ type: "Feature", geometry: { type: "LineString", coordinates: r.coords } });
-    toast(`Pickup route: ${r.stops.length} bins, ${fmt(r.distance_m)} m`);
-  }
+  if (!e.target.checked) { ["route", "route-basic"].forEach((l) => map.setLayoutProperty(l, "visibility", "none")); return; }
+  showRoutes(await api(`/api/route?pickups=${+$("#sPk").value || 2}`));
 };
 $("#showHot").onchange = async (e) => {
   map.setLayoutProperty("hot", "visibility", e.target.checked ? "visible" : "none");
@@ -802,14 +815,37 @@ async function analyseOnce() {
   fd.append("room", $("#vRoom").value);
   fd.append("bin", $("#vBin").value);
   const r = await api("/api/vision/analyze", { method: "POST", body: fd });
+  let n = 0;
+  (r.objects || []).forEach((o) => { if (o.category) o.n = ++n; });
   drawBoxes(r, f.w, f.h);
   const c = r.clip;
   $("#vOut").innerHTML = `<div><b>${r.people}</b> people · ${r.bin ? `bin: <b>${r.bin.label}</b> (${Math.round(r.bin.conf * 100)}%)` : "no bin model hit"} · ${r.ms} ms</div>
     <div>Most likely issue: <b>${esc(c.issue)}</b>, model score ${c.issue_score.toFixed(2)}${c.issue_score >= (r.threshold || 0.6) ? " (above threshold)" : " (below threshold)"}</div>
     <div>${c.top.map((t) => `<span class="tag">${esc(t.label)} ${Number(t.p).toFixed(2)}</span>`).join("")}</div>
     <div class="sub">Scores are uncalibrated model outputs, not probabilities. Mode: ${esc(r.models?.clip || "")}</div>
-    ${r.events.length ? `<div>Twin updated: ${r.events.join(" · ")}</div>` : ""}`;
+    ${r.events.length ? `<div>Twin updated: ${r.events.join(" · ")}</div>` : ""}
+    ${wasteItems(r)}`;
+  if (vTimer && (r.objects || []).some((o) => o.category)) stopLive();   // hold the frame so people can correct labels
 }
+const MAT_COLOR = { plastic: "#5fb0ff", paper: "#c8a46a", glass: "#7fe0d0", metal: "#b8bfd6", organic: "#4cc79e",
+                    ewaste: "#b48cff", hazardous: "#ff6b5e", textile: "#f0a948", other: "#e4e6ee" };
+const MATERIALS = Object.keys(MAT_COLOR);
+function wasteItems(r) {
+  const items = (r.objects || []).filter((o) => o.category);
+  if (!items.length) return "";
+  return `<h3>Waste objects <small>${items.length} found · fix any wrong category</small></h3>
+    <div class="items">${items.map((o, i) => `<div class="item"><i style="background:${MAT_COLOR[o.category]}">${i + 1}</i><span>${esc(o.label)}</span>
+      <select data-correct="${i}" data-label="${esc(o.label)}" data-pred="${o.category}" aria-label="Category of ${esc(o.label)}">${MATERIALS.map((m) =>
+        `<option ${m === o.category ? "selected" : ""}>${m}</option>`).join("")}</select><b>${Math.round(o.conf * 100)}%</b></div>`).join("")}</div>
+    ${r.segregation?.length ? `<div class="seg-tips">${r.segregation.map((g) => `<div><b>${g.count} × ${esc(g.category)}</b> → ${esc(g.bin)}<small>${esc(g.tip)}</small></div>`).join("")}</div>` : ""}`;
+}
+document.addEventListener("change", safely(async (e) => {
+  const sel = e.target.closest?.("select[data-correct]");
+  if (!sel) return;
+  const r = await post("/api/vision/correct", { label: sel.dataset.label, predicted: sel.dataset.pred, corrected: sel.value });
+  sel.dataset.pred = sel.value;
+  toast(`${r.message} Goes in: ${r.bin}.`);
+}));
 function drawBoxes(r, w, h) {
   const box = vCanvas.getBoundingClientRect();
   vCanvas.width = box.width; vCanvas.height = box.height;
@@ -820,10 +856,13 @@ function drawBoxes(r, w, h) {
   g.lineWidth = 2; g.font = "12px JetBrains Mono, monospace";
   for (const o of r.objects) {
     const [x1, y1, x2, y2] = o.box;
-    const col = o.label.startsWith("bin:") ? (o.label.toLowerCase().includes("overflow") ? "#ff6b5e" : "#f0a948") : o.label === "person" ? "#4cc79e" : "#9fd3ff";
+    const col = o.category ? MAT_COLOR[o.category] || "#9fd3ff"
+      : o.label.startsWith("bin:") ? (o.label.toLowerCase().includes("overflow") ? "#ff6b5e" : "#f0a948") : o.label === "person" ? "#4cc79e" : "#9fd3ff";
     g.strokeStyle = col; g.fillStyle = col;
     g.strokeRect(ox + x1 * s, oy + y1 * s, (x2 - x1) * s, (y2 - y1) * s);
-    g.fillText(`${o.label} ${Math.round(o.conf * 100)}%`, ox + x1 * s + 3, oy + y1 * s + 13);
+    const tag = `${o.n ? o.n + " " : ""}${o.category ? o.category + ": " : ""}${o.label} ${Math.round(o.conf * 100)}%`;
+    g.fillStyle = "rgba(13,16,32,.72)"; g.fillRect(ox + x1 * s, oy + y1 * s, g.measureText(tag).width + 8, 17);
+    g.fillStyle = col; g.fillText(tag, ox + x1 * s + 4, oy + y1 * s + 13);
   }
 }
 function stopLive() { clearInterval(vTimer); vTimer = null; $("#vStart").textContent = "Start live analysis"; }
@@ -908,6 +947,7 @@ async function runSim() {
   const lo = (v) => fmt(Math.round(v * r.uncertainty.low_factor)), hi = (v) => fmt(Math.round(v * r.uncertainty.high_factor));
   $("#simOut").innerHTML = `<div class="savings-kind"><b>Potential savings (modelled)</b>, not realised or measured.
       Range ₹${lo(r.inr_saved_year)} to ₹${hi(r.inr_saved_year)} a year (±25%: ${esc(r.uncertainty.why)}).</div>
+    ${beforeAfter(r)}
     <div class="big">
       <div class="stat"><span>Potential per year</span><b>₹${fmt(r.inr_saved_year)}</b></div>
       <div class="stat"><span>CO₂ avoided</span><b>${r.co2_tonnes_saved_year} t</b></div>
@@ -925,6 +965,40 @@ async function runSim() {
       `<tr><td>${esc(x.name)}</td><td>₹${fmt(x.r.inr_saved_year)}</td><td>${x.r.co2_tonnes_saved_year}</td><td>${x.r.payback_total_years ?? "–"} yr</td></tr>`).join("")}</table>` : ""}`;
   $("#saveScn").onclick = () => { scenarios.push({ name: describeScn(p), r }); runSim(); };
   $("#csvScn").onclick = () => exportCsv();
+}
+function beforeAfter(r) {
+  const rows = r.before_after || [];
+  if (!rows.length) return "";
+  const v = (x, k) => (k === "cost_inr" ? "₹" + fmt(Math.round(x)) : k === "co2_t" ? x.toFixed(1) : fmt(Math.round(x)));
+  return `<table class="ba"><tr><th></th><th>Before</th><th>After</th><th>Change</th></tr>${rows.map((x) =>
+    `<tr><td>${esc(x.label)}<small>${esc(x.unit)}</small></td><td>${v(x.before, x.key)}</td><td><b>${v(x.after, x.key)}</b></td>
+     <td class="${x.change < 0 ? "down" : x.change > 0 ? "up" : ""}">${x.change === 0 ? "–" : (x.pct > 0 ? "+" : "") + x.pct + "%"}</td></tr>`).join("")}</table>`;
+}
+// ---------------- collection route simulator ----------------
+async function runRoute() {
+  const r = await api(`/api/route?pickups=${+$("#sPk").value || 2}`);
+  lastRoute = r;
+  const col = (t, x, cls) => `<div class="rcol ${cls}"><span>${t}</span><b>${fmt(x.distance_m)} m</b>
+      <small>${x.stops.length} bins · ${x.minutes} min · ₹${fmt(Math.round(x.inr))} · ${x.co2_kg} kg CO₂</small></div>`;
+  $("#routeOut").innerHTML = `<div class="rcmp">${col("Basic: fixed round, every bin", r.basic, "basic")}${col("Smart: bins that need it", r.smart, "smart")}</div>
+    <div class="m"><span class="pill pri-${r.pct_shorter > 0 ? "low" : "medium"}">${r.pct_shorter}% shorter</span>
+      <span>saves ${fmt(r.saved_per_round.distance_m)} m and ${r.saved_per_round.minutes} min per round</span></div>
+    <div class="m"><span>At ${r.rounds_per_year / 365} rounds a day: <b>₹${fmt(r.saved_per_year.inr)}</b>, ${fmt(r.saved_per_year.km)} km,
+      ${fmt(r.saved_per_year.hours)} crew-hours and ${fmt(r.saved_per_year.co2_kg)} kg CO₂ a year</span></div>
+    ${r.skipped.length ? `<div class="sub">Skipped this round: ${r.skipped.map((b) => `${esc(b.bin)} (${b.fill}%, full in ${b.eta_full_h} h)`).join(", ")}</div>` : ""}
+    <details class="tl"><summary>Method (same for both routes)</summary><div class="sub">${Object.values(r.method).map(esc).join(". ")}.</div></details>
+    <div class="row"><button class="soft" id="routeMap">Show both on the map</button></div>`;
+  $("#routeMap").onclick = () => showRoutes(r);
+}
+let lastRoute = null;
+function showRoutes(r) {
+  if (!map?.getSource("route")) return;
+  map.getSource("route").setData({ type: "Feature", geometry: { type: "LineString", coordinates: r.smart.coords } });
+  map.getSource("route-basic").setData({ type: "Feature", geometry: { type: "LineString", coordinates: r.basic.coords } });
+  ["route", "route-basic"].forEach((l) => map.setLayoutProperty(l, "visibility", "visible"));
+  $("#showRoute").checked = true;
+  overview();
+  toast(`Grey: fixed round ${fmt(r.basic.distance_m)} m. Blue: smart round ${fmt(r.smart.distance_m)} m (${r.pct_shorter}% shorter).`, 6000);
 }
 let lastSim = null;
 const scenarios = [];
@@ -952,6 +1026,7 @@ function paybackTable(r) {
     <tr><th>Total</th><th>₹${fmt(r.inr_saved_year)}</th><th>₹${fmt(r.capex_total_inr)}</th><th>${yrs(r.payback_total_years)}</th></tr></table>`;
 }
 ["#sAc", "#sAh", "#sSol", "#sPk", "#sLed", "#sLeak", "#sPump"].forEach((s) => $(s).addEventListener("input", runSim));
+$("#sPk").addEventListener("change", () => runRoute().catch(() => {}));
 
 // ---------------- report ----------------
 async function loadLedger() {
@@ -1158,6 +1233,7 @@ async function boot() {
   drawQR($("#qrSmall"), 96);
   setInterval(() => { if ($("#tab-students").classList.contains("on")) loadReports().catch(() => {}); }, 8000);
   loadHotspots(); setInterval(() => { if ($("#tab-alerts").classList.contains("on")) loadHotspots(); }, 30000);
+  setInterval(() => { if ($("#tab-copilot").classList.contains("on")) loadAdvisor(); }, 20000);
   connect();
 }
 let lastMsg = Date.now();

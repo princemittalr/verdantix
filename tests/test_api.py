@@ -282,3 +282,38 @@ class CleanCityFeatures(Base):
         self.assertEqual(h["timing"]["patrol"], "1 PM")
         self.assertEqual(h["recurrence"]["every_days"], 2.0)
         self.assertGreaterEqual(datetime.fromisoformat(h["recurrence"]["next"]), now)
+
+
+class MvpFeatures(Base):
+    """Route simulator, before/after calculator, waste-object corrections, eco advisor."""
+
+    def test_route_simulator_compares_with_one_method(self):
+        r = self.c.get("/api/route?pickups=3").json()
+        self.assertEqual(len(r["basic"]["stops"]), len(self.A.twin.campus.of_type("bin")))
+        self.assertLessEqual(r["smart"]["distance_m"], r["basic"]["distance_m"])
+        self.assertEqual(r["rounds_per_year"], 3 * 365)
+        self.assertEqual(r["basic"]["coords"][0], r["basic"]["coords"][-1])   # closed tours from the depot
+        self.assertIn("haversine", r["method"]["distance"])
+
+    def test_before_after_calculator(self):
+        r = self.c.post("/api/simulate", json={"led_retrofit": True, "fix_leaks": False}).json()
+        rows = {x["key"]: x for x in r["before_after"]}
+        self.assertLess(rows["energy_kwh"]["after"], rows["energy_kwh"]["before"])
+        self.assertLess(rows["cost_inr"]["change"], 0)
+        self.assertEqual(rows["water_kl"]["change"], 0)
+
+    def test_waste_label_correction(self):
+        ok = self.c.post("/api/vision/correct", json={"label": "bottle", "predicted": "plastic", "corrected": "glass"}).json()
+        self.assertTrue(ok["ok"])
+        self.assertIn("Blue", ok["bin"])
+        bad = self.c.post("/api/vision/correct", json={"label": "x", "predicted": "plastic", "corrected": "lava"})
+        self.assertEqual(bad.status_code, 400)
+        seg = self.A.segregation([{"category": "organic"}, {"category": "organic"}, {"category": "ewaste"}])
+        self.assertEqual(seg[0]["category"], "organic")
+        self.assertEqual(seg[0]["count"], 2)
+
+    def test_eco_advisor(self):
+        a = self.c.get("/api/advisor").json()
+        self.assertIn("priorities", a)
+        self.assertTrue(a["segregation"])
+        self.assertIn("SWM Rules 2016", a["method"])

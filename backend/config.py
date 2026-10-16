@@ -32,6 +32,17 @@ LOCAL_LLM = os.getenv("LOCAL_LLM", "Qwen/Qwen2.5-1.5B-Instruct")
 GRID_KG_CO2_PER_KWH = 0.71   # CEA CO2 Baseline Database, all-India grid (approx.)
 TARIFF_INR_PER_KWH = 8.0     # assumed HT educational tariff, Karnataka
 WATER_INR_PER_KL = 60.0      # assumed blended BWSSB / tanker cost
+# Collection route simulator: one documented cost method, applied identically to both routes.
+ROUTE = {
+    "road_factor": 1.3,        # straight-line (haversine) distance x 1.3 for paths around buildings (assumed)
+    "speed_kmh": 6.0,          # electric garbage cart on campus paths (assumed)
+    "stop_min": 3.0,           # minutes to empty one bin (assumed)
+    "cart_inr_per_km": 4.0,    # e-cart energy + wear (assumed)
+    "crew_inr_per_h": 300.0,   # 2-person housekeeping crew (assumed)
+    "cart_kwh_per_km": 0.08,   # e-cart consumption (assumed); CO2 uses the CEA grid factor
+    "collect_fill_pct": 60,    # smart route: collect bins at or above this fill...
+    "collect_eta_h": 3,        # ...or that will be full within this many hours
+}
 WATER_KG_CO2_PER_KL = 0.30   # pumping + treatment energy (approx.)
 WASTE_KG_CO2_PER_KG = 0.50   # mixed waste to landfill (approx.)
 AC_SAVING_PER_DEG = 0.06     # BEE: ~6% AC energy saved per 1 degC setpoint raise

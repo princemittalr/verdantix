@@ -30,13 +30,16 @@ class VisionUnavailable(Exception):
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 LITE_PROMPT = """You are the camera sensor of a university campus sustainability digital twin.
 Look at the photo and reply with ONLY this JSON (no markdown):
-{"waste": 0-1, "water": 0-1, "energy": 0-1, "clean": 0-1, "people": <int>, "bin": "empty"|"half"|"overflow"|"none", "waste_type": "mixed"|"plastic"|"food"|"construction"|"garden"|"bulky"|"ewaste"|"medical"|"dead_animal"|"none", "labels": ["<short description>", "..."]}
+{"waste": 0-1, "water": 0-1, "energy": 0-1, "clean": 0-1, "people": <int>, "bin": "empty"|"half"|"overflow"|"none", "waste_type": "mixed"|"plastic"|"food"|"construction"|"garden"|"bulky"|"ewaste"|"medical"|"dead_animal"|"none", "labels": ["<short description>", "..."], "items": [{"label": "<object>", "category": "plastic"|"paper"|"glass"|"metal"|"organic"|"ewaste"|"hazardous"|"textile"|"other", "conf": 0-1, "box": [ymin, xmin, ymax, xmax]}]}
 waste = overflowing bin, litter or dumped garbage. water = leaking pipe, puddle, tap left running.
 energy = lights, fans, AC or projector switched on in an empty room. clean = none of these problems.
 The four scores are probabilities that sum to 1. people = number of people visible. bin = fill level of the main
 garbage bin if one is visible, else "none". waste_type = the main kind of waste if any is visible (food = wet/kitchen
 waste, medical = syringes, masks, gloves, medicine; ewaste = electronics, cables, batteries; bulky = furniture), else "none".
-labels = up to 3 short descriptions of what you see, most relevant first."""
+labels = up to 3 short descriptions of what you see, most relevant first.
+items = up to 12 individual waste objects you can see (bottle, wrapper, cup, food scraps, can, cardboard, battery, mask...),
+each with its material category, your confidence, and its bounding box as integers 0-1000 relative to the image
+(ymin, xmin, ymax, xmax). Use [] if no waste objects are visible."""
 
 
 def quality_problem(img):
@@ -64,6 +67,25 @@ ISSUE_PROMPTS = {
               "a photo of a closed water tap", "a photo of a person", "a photo of an office desk"],
 }
 FILL_FROM_CLASS = {"empty": 10, "half": 55, "overflow": 100, "garbage_overflow": 100}
+# Which bin each material goes in, following India's Solid Waste Management Rules 2016 (wet / dry / domestic hazardous).
+SEGREGATION = {
+    "plastic": ("Blue (dry)", "Rinse bottles and cups, flatten them; no food inside."),
+    "paper": ("Blue (dry)", "Keep it dry; flatten cardboard. Food-soiled paper goes in green."),
+    "glass": ("Blue (dry)", "Separate from paper; hand broken glass wrapped to housekeeping."),
+    "metal": ("Blue (dry)", "Cans and foil: empty and crush."),
+    "organic": ("Green (wet)", "Food and leaves only, no plastic bags: it goes to the campus compost."),
+    "ewaste": ("E-waste drop point (IT stores)", "Never in a bin: batteries and electronics go to the authorised recycler."),
+    "hazardous": ("Red (domestic hazardous)", "Masks, syringes, chemicals: wrap, mark and hand to the clinic or housekeeping."),
+    "textile": ("Blue (dry)", "Clean clothes can go to a donation drive instead."),
+    "other": ("Ask housekeeping", "Not sure? Keep it out of the green wet bin."),
+}
+# COCO classes that are common waste items, for full (local YOLO) mode.
+COCO_WASTE = {"bottle": "plastic", "cup": "plastic", "wine glass": "glass", "fork": "metal", "knife": "metal", "spoon": "metal",
+              "bowl": "other", "banana": "organic", "apple": "organic", "orange": "organic", "sandwich": "organic",
+              "broccoli": "organic", "carrot": "organic", "pizza": "organic", "donut": "organic", "cake": "organic",
+              "book": "paper", "cell phone": "ewaste", "laptop": "ewaste", "keyboard": "ewaste", "mouse": "ewaste",
+              "remote": "ewaste", "tv": "ewaste", "scissors": "metal", "toothbrush": "plastic", "backpack": "textile",
+              "handbag": "textile", "umbrella": "other", "vase": "glass"}
 
 
 class Vision:
@@ -101,7 +123,7 @@ class Vision:
         buf = io.BytesIO()
         small.save(buf, "JPEG", quality=85)
         url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-        body = {"model": C.VISION_MODEL, "temperature": 0, "max_tokens": 1500,
+        body = {"model": C.VISION_MODEL, "temperature": 0, "max_tokens": 3000,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": LITE_PROMPT},
                                                           {"type": "image_url", "image_url": {"url": url}}]}]}
         if time.time() < self.health["down_until"]:   # circuit breaker: don't hammer a failing provider
@@ -153,7 +175,20 @@ class Vision:
         waste_type = None
         if scores["waste"] >= 0.35 or (bin_ and bin_["fill"] >= 100):
             waste_type = WT.info(wt if wt in WT.TYPES else WT.DEFAULT, scores["waste"])
-        return {"people": people, "objects": [], "bin": bin_, "clip": clip, "size": small.size, "waste_type": waste_type}
+        W, H = small.size
+        objects = []
+        for it in (d.get("items") or [])[:12]:
+            try:
+                y0, x0, y1, x1 = [min(max(float(v), 0), 1000) for v in it.get("box", [])[:4]]
+            except (TypeError, ValueError):
+                continue
+            if y1 <= y0 or x1 <= x0:
+                continue
+            cat = str(it.get("category", "other")).lower()
+            objects.append({"label": str(it.get("label", "item"))[:40], "category": cat if cat in SEGREGATION else "other",
+                            "conf": round(min(max(float(it.get("conf", 0.5) or 0.5), 0), 1), 2),
+                            "box": [round(x0 * W / 1000), round(y0 * H / 1000), round(x1 * W / 1000), round(y1 * H / 1000)]})
+        return {"people": people, "objects": objects, "bin": bin_, "clip": clip, "size": small.size, "waste_type": waste_type}
 
     # Models load lazily so the API starts instantly.
     def yolo(self):
@@ -229,7 +264,10 @@ class Vision:
             res = self.yolo().predict(np.array(img), imgsz=640, conf=0.35, verbose=False)[0]
             for box, cls, conf in zip(res.boxes.xyxy.tolist(), res.boxes.cls.tolist(), res.boxes.conf.tolist()):
                 name = res.names[int(cls)]
-                out["objects"].append({"label": name, "conf": round(conf, 2), "box": [round(v) for v in box]})
+                obj = {"label": name, "conf": round(conf, 2), "box": [round(v) for v in box]}
+                if name in COCO_WASTE:
+                    obj["category"] = COCO_WASTE[name]
+                out["objects"].append(obj)
                 out["people"] += name == "person"
             m = self.bins()
             if m is not None:

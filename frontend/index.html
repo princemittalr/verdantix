@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=32">
+<link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -142,6 +142,7 @@
   </div>
 
   <div class="tab" id="tab-copilot">
+    <section id="advisor" class="advisor"><div class="sub">Loading today's priorities…</div></section>
     <div id="chat" class="chat"></div>
     <div class="chips">
       <button>What should facilities fix first today?</button>
@@ -160,7 +161,7 @@
   </div>
 
   <div class="tab" id="tab-whatif">
-    <p class="sub">Yearly impact, worked out over a full year of meter data.</p>
+    <p class="sub">Before and after: the campus over a full year of meter data as it runs today, and with your changes.</p>
     <label class="slider">Raise AC setpoint <b id="vAc">0 °C</b><input type="range" id="sAc" min="0" max="3" step="0.5" value="0"></label>
     <label class="slider">Cut after-hours load <b id="vAh">0%</b><input type="range" id="sAh" min="0" max="100" step="10" value="0"></label>
     <label class="slider">Rooftop solar <b id="vSol">0 kWp</b><input type="range" id="sSol" min="0" max="500" step="25" value="0"></label>
@@ -169,6 +170,8 @@
     <label class="check"><input type="checkbox" id="sLeak"> Fix detected leaks</label>
     <label class="check"><input type="checkbox" id="sPump"> Refill tanks at night (22:00–06:00)</label>
     <div id="simOut" class="simout"></div>
+    <h3>Collection route simulator <small>fixed round vs smart round</small></h3>
+    <div id="routeOut" class="simout"><div class="sub">Working out both routes…</div></div>
   </div>
 
   <div class="tab" id="tab-report">
@@ -259,6 +262,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>

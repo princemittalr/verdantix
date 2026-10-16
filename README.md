@@ -79,6 +79,13 @@ Open http://localhost:8000.
 - **Reporter app** (`/report`): installable PWA (Android "Install app", or package as an APK with PWABuilder from the live URL). Pick a category, add a photo (optional) and GPS. Photo reports are verified by AI instantly; reports without a photo are filed as unverified and become verified when 3 people report the same category within 60 m.
 - **CCTV auto-reporting**: `POST /api/cctv/<camera>` with a frame. If the vision model sees garbage, a leak or lights on in an empty room, an alert is raised at that camera's map location; it closes itself after 3 clean frames. Use the Vision tab ("Use as CCTV camera") or `scripts/cctv_agent.py <camera> <webcam|video|rtsp-url>`.
 
+## Waste MVP features
+
+- **Waste vision** (Vision tab): upload or point a camera at waste; every object gets a box, a material (plastic, paper, glass, metal, organic, e-waste, hazardous, textile, other) and a confidence. Anyone can fix a wrong category from a dropdown; corrections are saved to the audit log as labels for tuning. Each material shows its bin under India's SWM Rules 2016 (green wet, blue dry, red domestic hazardous, e-waste drop point).
+- **Collection route simulator** (What-if tab, `GET /api/route?pickups=2`): a basic fixed round that empties every bin vs a smart round that only visits bins at 60%+ or full within 3 h (nearest neighbour + 2-opt). Both are closed tours from the depot, costed with one documented method: haversine distance x 1.3 path factor, 6 km/h e-cart, 3 min per bin, ₹4/km + ₹300/h crew, 0.08 kWh/km x CEA grid factor. Shows distance, time, ₹ and CO₂ per round and per year, which bins were skipped and why, and both routes on the map.
+- **Before-and-after calculator** (What-if tab): the campus over a full replayed year as it runs today vs with the chosen changes, for energy, bill, CO₂, water and bin overflow-hours.
+- **Eco advisor** (Copilot tab, `GET /api/advisor`): today's priorities from rules over the live twin (hazardous waste first, overdue orders, the smart route, unassigned waste incidents, hotspot patrol times) and segregation tips for what cameras and reports saw recently. No LLM, so no made-up numbers.
+
 ## Built on our Clean City app
 
 These parts come from [Clean City](https://github.com/pandeylakshya207-max/clean-city-app), the team's earlier street-garbage reporting app for Bengaluru, adapted from city wards to one campus:

@@ -30,7 +30,9 @@ from ai import copilot, local_llm, report
 from security import client_ip, is_operator, limit, read_upload, require_operator, require_sensor
 from twin.engine import CLOSED, FEEDBACK, Twin
 from twin.hotspots import hotspots
-from vision.detector import Vision, VisionUnavailable, quality_problem
+from collections import Counter, deque
+
+from vision.detector import SEGREGATION, Vision, VisionUnavailable, quality_problem
 from vision.reports import ReportDesk
 
 log = logging.getLogger("verdantix")
@@ -370,10 +372,89 @@ async def analyze(file: UploadFile = File(...), room: str = Form(""), bin: str =
         twin.observe_bin(bin, 100, "camera")
         events.append(f"{bin}: overflow seen (model score {result['clip']['issue_score']})")
     result["events"] = events
+    result["segregation"] = segregation(result.get("objects", []))
+    seen_materials.extend(o["category"] for o in result.get("objects", []) if o.get("category"))
     result["ms"] = round((time.time() - t0) * 1000)
     result["models"] = vision.status
     result["threshold"] = C.CCTV_RAISE
     return result
+
+
+def segregation(objects):
+    """Group detected waste objects by material, with the bin it belongs in and a short tip."""
+    counts = Counter(o["category"] for o in objects if o.get("category"))
+    return [{"category": c, "count": n, "bin": SEGREGATION[c][0], "tip": SEGREGATION[c][1]} for c, n in counts.most_common()]
+
+
+seen_materials: deque = deque(maxlen=200)   # recent detections feed the advisor's segregation tips
+corrections: Counter = Counter()           # (predicted, corrected) -> times a person fixed the label
+
+
+class CorrectIn(BaseModel):
+    label: str = Field(..., max_length=40)
+    predicted: str = Field(..., max_length=20)
+    corrected: str = Field(..., max_length=20)
+
+
+@app.post("/api/vision/correct", dependencies=[Depends(limit("vision"))])
+def vision_correct(body: CorrectIn, request: Request):
+    """A person fixes a detection's category. Saved to the audit log as a label for tuning the prompts / model later."""
+    if body.corrected not in SEGREGATION:
+        raise HTTPException(400, f"category must be one of {', '.join(SEGREGATION)}")
+    corrections[(body.predicted, body.corrected)] += 1
+    seen_materials.append(body.corrected)
+    audit("vision correction", body.label, request, "public", f"{body.predicted} -> {body.corrected}")
+    total = sum(corrections.values())
+    return {"ok": True, "message": f"Saved: {body.label} is {body.corrected}. {total} correction{'s' if total != 1 else ''} collected so far.",
+            "bin": SEGREGATION[body.corrected][0], "tip": SEGREGATION[body.corrected][1]}
+
+
+@app.get("/api/advisor")
+def advisor():
+    """Eco advisor: today's operational priorities and segregation tips, from rules over the live twin (no LLM, no guessing)."""
+    sim = twin.clock.now()
+    pri = []
+    with twin.lock:
+        alerts = [a for a in twin.alerts.values() if a.status in ("open", "assigned")]
+        orders = list(twin.orders.values())
+    for a in alerts:
+        wt = a.evidence.get("waste_type")
+        if wt and wt.get("hazardous"):
+            pri.append({"level": "crit", "text": f"Send {wt['team']} to {a.title.split(' near ')[-1]} now: {wt['name'].lower()} ({a.id}).",
+                        "why": f"Hazardous waste, {wt['deadline_h']} h deadline.", "alert": a.id})
+    for o in orders:
+        if o.overdue and o.status not in ("done", "cancelled"):
+            pri.append({"level": "crit", "text": f"{o.id} for {o.team} is overdue: {o.title}.", "why": "Escalated to the supervisor.", "alert": o.alert_id})
+    r = twin.pickup_route(sim)
+    over = [b for b, s in twin.bin_state(sim).items() if s["fill"] >= 95]
+    if r["smart"]["stops"]:
+        pri.append({"level": "crit" if over else "warn",
+                    "text": f"Run the smart collection round now: {len(r['smart']['stops'])} bins, {fmt_km(r['smart']['distance_m'])}, about {r['smart']['minutes']} min"
+                            + (f" ({len(over)} already overflowing)." if over else "."),
+                    "why": f"{r['pct_shorter']}% shorter than the fixed round of all {len(r['basic']['stops'])} bins; "
+                           f"about ₹{r['saved_per_year']['inr']:,} and {r['saved_per_year']['hours']} crew-hours a year at {r['rounds_per_year'] // 365} rounds a day."})
+    for a in alerts:
+        if a.kind == "waste" and not a.work_order and not (a.evidence.get("waste_type") or {}).get("hazardous"):
+            team = (a.evidence.get("waste_type") or {}).get("team", "Housekeeping")
+            pri.append({"level": "warn", "text": f"Assign {a.id} to {team}: {a.title}.", "why": f"Open, about ₹{a.inr_per_day:,.0f} a day at risk.", "alert": a.id})
+    for h in hotspots(twin.events, sim, names={k: f["properties"].get("name", k) for k, f in twin.campus.features.items()})[:3]:
+        if h["timing"]["patrol"] and h["main_kind"] == "waste":
+            pri.append({"level": "info", "text": f"Patrol {', '.join(h['names'][:2])} at {h['timing']['patrol']}, before the usual {h['timing']['peak']} window.",
+                        "why": f"{h['events']} waste events in 30 days" + (f", returns about every {h['recurrence']['every_days']} days." if h["recurrence"]["every_days"] else ".")})
+    mats = Counter(seen_materials)
+    for rep in desk.reports[-50:]:
+        wt = rep.get("waste_type") or {}
+        mats.update({"food": ["organic"], "plastic": ["plastic"], "ewaste": ["ewaste"], "medical": ["hazardous"]}.get(wt.get("key"), []))
+    tips = [{"category": c, "seen": n, "bin": SEGREGATION[c][0], "tip": SEGREGATION[c][1]} for c, n in mats.most_common(4)]
+    if not tips:
+        tips = [{"category": c, "seen": 0, "bin": SEGREGATION[c][0], "tip": SEGREGATION[c][1]} for c in ("organic", "plastic", "ewaste")]
+    return {"priorities": pri[:8], "segregation": tips, "time": sim.isoformat(timespec="minutes"),
+            "method": "Rules over the live twin: hazardous waste first, overdue orders, bin fill and the route simulator, open waste incidents, "
+                      "hotspot patrol times. Segregation tips follow India's SWM Rules 2016 and what cameras and reports saw recently."}
+
+
+def fmt_km(m):
+    return f"{m / 1000:.1f} km" if m >= 1000 else f"{m} m"
 
 
 # ---------- CCTV: cameras report problems on their own ----------
@@ -616,8 +697,9 @@ def weekly_pdf():
 
 # ---------- analytics ----------
 @app.get("/api/route")
-def route():
-    return twin.pickup_route(twin.clock.now())
+def route(pickups: int = 2):
+    """Collection route simulator: fixed round vs smart round, same cost method (see 'method' in the reply)."""
+    return twin.pickup_route(twin.clock.now(), max(1, min(pickups, 6)))
 
 
 @app.get("/api/hotspots")
