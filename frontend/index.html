@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=40">
+<link rel="stylesheet" href="style.css?v=50">
 </head>
 <body class="intro">
 <script>try { if (sessionStorage.getItem("vx-entered") || /[?&]skip/.test(location.search)) document.body.classList.remove("intro"); } catch {}</script>
@@ -37,6 +37,9 @@
   <symbol id="i-cam" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
   <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 20a6 6 0 0 1 12 0M16 4.8a3.2 3.2 0 0 1 0 6.4M18 14.5a6 6 0 0 1 3 5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="4" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="i-360" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3a4.5 9 0 0 1 0 18M12 3a4.5 9 0 0 0 0 18" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/></symbol>
 </svg>
 
@@ -66,20 +69,21 @@
 <nav class="rail" aria-label="Verdantix">
   <div class="rail-logo" id="brandBtn" role="button" tabindex="0" title="Verdantix: back to the intro"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span></div>
   <div class="tabs" id="tabs" role="tablist" aria-label="Sections">
-    <button data-tab="alerts" class="on"><svg><use href="#i-bell"/></svg><span>Alerts</span><em id="tabAlerts" hidden></em></button>
-    <button data-tab="building"><svg><use href="#i-bld"/></svg><span>Building</span></button>
-    <button data-tab="copilot"><svg><use href="#i-spark"/></svg><span>Copilot</span></button>
-    <button data-tab="whatif"><svg><use href="#i-sliders"/></svg><span>What-if</span></button>
-    <button data-tab="vision"><svg><use href="#i-cam"/></svg><span>Vision</span></button>
-    <button data-tab="students"><svg><use href="#i-users"/></svg><span>Students</span></button>
-    <button data-tab="report"><svg><use href="#i-doc"/></svg><span>Report</span></button>
-    <button data-tab="tour"><svg><use href="#i-360"/></svg><span>360° tour</span></button>
+    <button data-tab="overview" class="on" title="Overview"><svg><use href="#i-grid"/></svg><span>Overview</span></button>
+    <button data-tab="alerts" title="Alerts and work orders"><svg><use href="#i-bell"/></svg><span>Alerts</span><em id="tabAlerts" hidden></em></button>
+    <button data-tab="building" title="Building details"><svg><use href="#i-bld"/></svg><span>Building</span></button>
+    <button data-tab="copilot" title="Copilot and Eco advisor"><svg><use href="#i-spark"/></svg><span>Copilot</span></button>
+    <button data-tab="whatif" title="What-if and route simulator"><svg><use href="#i-sliders"/></svg><span>What-if</span></button>
+    <button data-tab="vision" title="Waste vision and CCTV"><svg><use href="#i-cam"/></svg><span>Vision</span></button>
+    <button data-tab="students" title="Student reports"><svg><use href="#i-users"/></svg><span>Students</span></button>
+    <button data-tab="report" title="Weekly report"><svg><use href="#i-doc"/></svg><span>Report</span></button>
+    <button data-tab="tour" title="360° tour"><svg><use href="#i-360"/></svg><span>360° tour</span></button>
   </div>
   <button class="rail-btn" id="aboutBtn" title="Data, models and how it works" aria-label="Data, models and how it works"><svg><use href="#i-info"/></svg><span>About</span></button>
 </nav>
 
 <header class="topbar">
-  <div class="ptitle"><b>Verdantix</b><small>DSU Harohalli · live campus twin</small></div>
+  <label class="search float"><svg><use href="#i-search"/></svg><input id="bldSearch" list="bldList" placeholder="Search a building…" autocomplete="off" aria-label="Search a building"><datalist id="bldList"></datalist></label>
   <div class="clock float">
     <span id="simTime" class="time">--</span>
     <div class="seg" id="speedSeg" role="group" aria-label="Simulation speed">
@@ -98,22 +102,35 @@
   </div>
 </header>
 
-<section class="kpis" aria-label="Campus right now">
-  <div class="kpi hero">
-    <div class="ring" id="ring" style="--p:0"><b id="kScore">--</b></div>
-    <div><span>Green score</span><b class="kv">Grade <em id="kGrade">–</em></b><small>out of 100</small></div>
-  </div>
-  <div class="kpi"><span>Power now</span><b class="kv"><i id="kPower">--</i><u>kW</u></b><small><i id="kEnergy">--</i> kWh today</small></div>
-  <div class="kpi"><span>Cost today</span><b class="kv">₹<i id="kCost">--</i></b><small><i id="kCo2">--</i> kg CO₂ · <i id="kWater">--</i> kL water</small></div>
-  <div class="kpi hot"><span>Open problems</span><b class="kv"><i id="kAlerts">--</i></b><small id="kWaste">nothing at risk</small></div>
-  <p class="provline" title="Meters replay open building data rescaled to DSU's buildings; they are not live DSU meters. Rupee and CO₂ figures are estimates."><span class="pill prov replay">Dataset replay</span><span>open data rescaled to DSU · ₹, CO₂ estimated</span><a href="#" id="provMore">How it works</a></p>
-</section>
-
 <aside class="panel float" id="panel">
-  <header class="phead"><h2 id="phTitle">Alerts</h2><p id="phSub">Every problem: detect, verify, assign, fix, prove</p></header>
+  <header class="phead"><h2 id="phTitle">Overview</h2><p id="phSub">The whole campus at a glance</p></header>
   <div class="pcontent">
 
-  <div class="tab on" id="tab-alerts">
+  <div class="tab on" id="tab-overview">
+    <section class="ov-head">
+      <div><span class="ov-eyebrow">Campus</span><h3>DSU Harohalli</h3><small>Live digital twin · <span id="ovCount">9</span> buildings</small></div>
+      <div class="ov-score"><div class="ring" id="ring" style="--p:0"><b id="kScore">--</b></div><span>Grade <em id="kGrade">–</em></span></div>
+    </section>
+    <div class="ov-grid">
+      <div class="tile"><span>Power now</span><b class="kv"><i id="kPower">--</i><u>kW</u></b><small><i id="kEnergy">--</i> kWh today</small></div>
+      <div class="tile"><span>Cost today</span><b class="kv">₹<i id="kCost">--</i></b><small>estimated, energy + water</small></div>
+      <div class="tile"><span>Water today</span><b class="kv"><i id="kWater">--</i><u>kL</u></b><small><i id="kCo2">--</i> kg CO₂ today</small></div>
+      <div class="tile hot"><span>Open problems</span><b class="kv"><i id="kAlerts">--</i></b><small id="kWaste">nothing at risk</small></div>
+    </div>
+    <section class="ov-card">
+      <div class="ov-row"><b>Campus health</b><span id="healthWord">--</span></div>
+      <div class="gauge" id="gauge" aria-hidden="true"></div>
+      <p class="provline" title="Meters replay open building data rescaled to DSU's buildings; they are not live DSU meters. Rupee and CO₂ figures are estimates."><span class="pill prov replay">Dataset replay</span><span>open data rescaled to DSU · ₹, CO₂ estimated</span><a href="#" id="provMore">How it works</a></p>
+    </section>
+  <section class="ov-card iso" aria-label="Energy waste per day, last 5 weeks">
+    <h4>Energy waste <small>kWh above normal · 5 weeks</small></h4>
+    <div id="isoCal" class="isocal"></div>
+    <div class="iso-foot"><span id="isoTotal"></span><span class="iso-key">less <i></i><i></i><i></i><i></i> more</span></div>
+  </section>
+    <section class="ov-card board" id="board" aria-label="Green score by building"></section>
+  </div>
+
+  <div class="tab" id="tab-alerts">
     <ol class="loop" aria-label="How every problem is handled"><li>Detect</li><li>Verify</li><li>Assign</li><li>Fix</li><li>Prove</li></ol>
     <div id="priority" class="list"></div>
     <h3>Incidents</h3>
@@ -228,26 +245,23 @@
   </div>
 </aside>
 
-<div class="rightcol">
-  <section class="layers float" aria-label="Map layers">
+<div class="maptools float" aria-label="Map tools">
     <div class="viewctl">
       <button class="soft" id="viewBtn" title="Switch between 3D and top-down"><svg><use href="#i-cube"/></svg><span>2D</span></button>
       <button class="soft" id="orbitBtn" title="Slowly orbit the campus"><svg><use href="#i-orbit"/></svg>Orbit</button>
       <button class="soft" id="homeBtn" title="Back to the whole campus"><svg><use href="#i-home"/></svg>Campus</button>
       <button class="soft" id="walkBtn" title="DSU's campus-wide 360° tour with live twin data on top"><svg><use href="#i-walk"/></svg>360°</button>
+      <button class="soft" id="layersBtn" title="Map layers and colours" aria-expanded="false"><svg><use href="#i-layers"/></svg>Layers</button>
     </div>
+  <div class="layers-pop" id="layersPop" hidden>
     <div class="legend" aria-label="Map colours"><span><i class="sw ok"></i>Normal</span><span><i class="sw warn"></i>Attention</span><span><i class="sw crit"></i>Critical</span><span><i class="sw sel"></i>Selected</span></div>
+    <label class="tog"><input type="checkbox" id="showSat" checked><span>Satellite photo</span></label>
     <label class="tog"><input type="checkbox" id="showRoute"><span>Bin pickup route</span></label>
     <label class="tog"><input type="checkbox" id="showHot"><span>Problem hotspots</span></label>
-    <label class="tog"><input type="checkbox" id="showSat"><span>Satellite photo</span></label>
-  </section>
-  <section class="iso float" aria-label="Energy waste per day, last 5 weeks">
-    <h4>Energy waste <small>kWh above normal · 5 weeks</small></h4>
-    <div id="isoCal" class="isocal"></div>
-    <div class="iso-foot"><span id="isoTotal"></span><span class="iso-key">less <i></i><i></i><i></i><i></i> more</span></div>
-  </section>
-  <section class="board float" id="board" aria-label="Green score by building"></section>
+  </div>
 </div>
+
+<article class="bcard float" id="bcard" hidden aria-live="polite"></article>
 
 <div class="demo dock float" aria-label="Demo scenarios">
   <span>Simulate</span>
@@ -284,6 +298,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=40"></script>
+<script src="app.js?v=50"></script>
 </body>
 </html>

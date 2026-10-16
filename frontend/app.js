@@ -149,6 +149,7 @@ function enterCampus(then) {
   try { sessionStorage.setItem("vx-entered", "1"); } catch {}
   spin(false);
   document.body.classList.remove("intro");
+  if (S) renderBcard(S);
   if (map && campusView) map.flyTo({ ...campusView, duration: calm ? 0 : 2600, essential: false });
   if (then) setTimeout(then, calm ? 50 : 2700);
 }
@@ -184,10 +185,10 @@ function frameCampus() {
   const xs = pts.map((c) => c[0]), ys = pts.map((c) => c[1]);
   const W = innerWidth, H = innerHeight, mobile = W <= 1000;
   const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
-  const panel = r("#panel"), right = r(".rightcol .layers"), kpis = r(".kpis");
+  const panel = r("#panel");
   const padding = mobile
-    ? { top: 150, bottom: Math.round(H * 0.48) + 90, left: 30, right: 30 }
-    : { top: Math.round((kpis?.bottom || 160) + 30), bottom: 90, left: Math.round((panel?.right || 500) + 40), right: Math.round(W - (right?.left || W - 300) + 40) };
+    ? { top: 110, bottom: Math.round(H * 0.48) + 90, left: 30, right: 30 }
+    : { top: 100, bottom: 100, left: Math.round((panel?.right || 500) + 110), right: W >= 1280 ? Math.round(W - (document.querySelector("#bcard")?.getBoundingClientRect().left || W - 360) + 30) : 60 };
   const bb = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
   const cam = map.cameraForBounds(bb, { padding, bearing: -20 });
   const center = [(bb[0][0] + bb[1][0]) / 2, (bb[0][1] + bb[1][1]) / 2];
@@ -220,6 +221,7 @@ async function initMap() {
     map.setMinZoom(Math.max(campusView.zoom - 1.2, 14));
     let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { campusView = frameCampus(); map.setPadding(campusView.padding); }, 250); });
     map.on("move", () => { if (!declutter.raf) declutter.raf = requestAnimationFrame(declutter); });
+    setTimeout(() => applySat($("#showSat").checked), 0);
     map.setLight({ anchor: "map", position: [1.4, 215, 35], intensity: 0.32, color: "#ffffff" });
 
     map.addSource("mask", { type: "geojson", data: { type: "Feature", properties: {},
@@ -452,7 +454,7 @@ function render(st) {
   $("#tabAlerts").textContent = k.open_alerts;
   $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)} a day at risk` : "nothing at risk right now";
   $("#kGrade").textContent = k.green_score >= 85 ? "A" : k.green_score >= 70 ? "B" : k.green_score >= 55 ? "C" : "D";
-  document.querySelector(".kpi.hot").classList.toggle("on", k.open_alerts > 0);
+  document.querySelector(".tile.hot").classList.toggle("on", k.open_alerts > 0);
   const tb = st.tariff || {};
   $("#tariff").textContent = tb.band ? `${tb.band[0].toUpperCase() + tb.band.slice(1)} tariff ₹${tb.inr_per_kwh}/kWh` : "--";
   $("#tariff").className = `tariff ${tb.band || ""}`;
@@ -460,6 +462,8 @@ function render(st) {
   $("#iot").textContent = `${st.live_sensors} live sensor${st.live_sensors === 1 ? "" : "s"}`;
   announce(st);
   renderIntro(st);
+  renderGauge(k.green_score);
+  renderBcard(st);
   renderBoard(st);
   renderAlerts(st);
   renderBuilding(st);
@@ -654,11 +658,13 @@ async function loadHotspots() {
     : `<div class="sub">No recurring hotspots yet. A place needs 3 incidents within 40 m.</div>`;
 }
 
-async function selectBuilding(id) {
+async function selectBuilding(id, openTab = false) {
   selected = id;
+  bcardOpen = true;
   $("#bldSelect").value = id;
   if (S && map) updateMap(S);
-  switchTab("building");
+  if (S) renderBcard(S);
+  if (openTab) switchTab("building");
   const s = await api(`/api/building/${id}/series`);
   const pad = (n) => Array(n).fill(null);
   const fc = s.forecast || [];
@@ -723,6 +729,7 @@ function renderBuilding(st) {
 
 // ---------------- tabs + controls ----------------
 const SECTION = {
+  overview: ["Overview", "The whole campus at a glance"],
   alerts: ["Alerts", "Every problem: detect, verify, assign, fix, prove"],
   building: ["Building", "Live meters, AI forecast, rooms, tanks, bins and sensors"],
   copilot: ["Copilot", "Eco advisor and a GenAI assistant that answers from live data"],
@@ -753,7 +760,7 @@ $$(".demo button").forEach((b) => (b.onclick = safely(async () => {
   const r = await post(`/api/scenario/${b.dataset.scn}`);
   toast(b.dataset.scn === "clear" ? "Demo scenarios cleared" : `Simulated ${r.kind.replace("_", " ")} at ${r.target} (labelled as a demo)`);
 })));
-$("#bldSelect").onchange = (e) => selectBuilding(e.target.value);
+$("#bldSelect").onchange = (e) => selectBuilding(e.target.value, true);
 
 const refresh = async () => { try { render(await api("/api/state")); } catch { /* the socket will catch up */ } };
 document.addEventListener("click", safely(async (e) => {
@@ -828,15 +835,79 @@ $("#proofFile").addEventListener("change", safely(async (e) => {
   refresh();
 }));
 $("#viewBtn").onclick = () => toggle3D();
-$("#showSat").onchange = (e) => {
+function applySat(on) {
   if (!map?.getLayer("sat")) return;
-  map.setLayoutProperty("sat", "visibility", e.target.checked ? "visible" : "none");
-  map.setPaintProperty("mask", "fill-opacity", e.target.checked ? 0.55 : 0.72);
+  map.setLayoutProperty("sat", "visibility", on ? "visible" : "none");
+  if (map.getLayer("mask")) map.setPaintProperty("mask", "fill-opacity", on ? 0.42 : 0.74);
+}
+$("#showSat").onchange = (e) => {
+  applySat(e.target.checked);
 };
 $("#board").addEventListener("click", (e) => { const r = e.target.closest("[data-bld]"); if (r) selectBuilding(r.dataset.bld); });
 $("#walkBtn").onclick = () => openWalk();
 $("#bldWalk").onclick = () => openWalk(selected);
 $("#walkBack").onclick = () => { const id = walkId; closeWalk(); if (id) selectBuilding(id); };
+
+// ---------------- building card on the map (like a field card): readings, open issues, AI insight ----------------
+let bcardOpen = true;
+function renderBcard(st) {
+  const el = $("#bcard");
+  const b = st.buildings[selected];
+  if (!b || !bcardOpen || document.body.classList.contains("intro")) { el.hidden = true; return; }
+  el.hidden = false;
+  const pct = (v, base) => (base ? Math.round((100 * (v - base)) / base) : 0);
+  const dp = pct(b.power_kw, b.baseline_kw), dw = pct(b.water_lph, b.water_baseline_lph);
+  const open = st.alerts.filter((a) => (a.status === "open" || a.status === "assigned") && a.asset.split("/")[0] === selected);
+  const fc = forecastInfo && forecastInfo.id === selected ? forecastInfo : null;
+  const tank = Object.values(st.tanks || {}).find((t) => t.feeds?.includes(selected));
+  const insight = open.length ? `${open[0].title}. ${open[0].work_order ? "A work order is open." : "Assign it from Alerts."}`
+    : dp > 15 ? `Power is ${dp}% above the learned normal for this hour. Check for AC or lights left on.`
+    : fc ? `Next 24 h: about ${fmt(fc.kwh)} kWh, peaking near ${fmt(fc.peak)} kW at ${String(fc.at).slice(-5)}. Pre-cool before the peak tariff.`
+    : "Running within its normal pattern for this hour.";
+  const status = { ok: "Normal", warn: "Needs attention", crit: "Critical" }[b.status] || b.status;
+  el.innerHTML = `
+    <header><div><h3>${esc(b.name)}</h3><small>${esc(selected)} · ${b.live ? "live sensor" : "dataset replay"}</small></div>
+      <button class="icon ghost" id="bcardClose" aria-label="Close building card"><svg><use href="#i-x"/></svg></button></header>
+    <div class="bc-dates"><div><span>Power now</span><b>${fmt(b.power_kw)} kW</b></div><div><span>Expected</span><b>${fmt(b.baseline_kw)} kW</b></div></div>
+    <div class="bc-health"><div class="ov-row"><span>Green score</span><b class="st-${b.status}">${b.score} · ${status}</b></div>
+      <div class="bar"><i class="${b.status}" style="width:${b.score}%"></i></div></div>
+    <details class="bc-sec" open><summary>Live readings</summary>
+      <dl>
+        <div><dt>Power vs normal</dt><dd class="${dp > 15 ? "bad" : ""}">${dp >= 0 ? "+" : ""}${dp}%</dd></div>
+        <div><dt>Water</dt><dd>${fmt(b.water_lph)} L/h</dd></div>
+        <div><dt>Water vs normal</dt><dd class="${dw > 50 ? "bad" : ""}">${dw >= 0 ? "+" : ""}${dw}%</dd></div>
+        ${fc ? `<div><dt>Next 24 h (AI)</dt><dd>${fmt(fc.kwh)} kWh</dd></div>` : ""}
+        ${tank ? `<div><dt>${esc(tank.name)}</dt><dd>${tank.level_pct}% · pump ${tank.pump_on ? "on" : "off"}</dd></div>` : ""}
+      </dl></details>
+    <details class="bc-sec" ${open.length ? "open" : ""}><summary>Open issues <em>${open.length}</em></summary>
+      ${open.length ? open.slice(0, 3).map((a) => `<a href="#" data-alertlink="${a.id}" class="bc-issue ${a.severity}">${esc(a.title)}</a>`).join("") : '<p class="sub">No open issues in this building.</p>'}</details>
+    <div class="bc-ai"><span class="pill">AI</span><b>Insight</b><p>${esc(insight)}</p></div>
+    <div class="bc-act"><button class="soft" data-bdetail="1">Building details</button><button class="soft" id="bcWalk"><svg><use href="#i-walk"/></svg>360° view</button></div>`;
+  $("#bcardClose").onclick = () => { bcardOpen = false; el.hidden = true; };
+  $("#bcWalk").onclick = () => openWalk(selected);
+  el.querySelector("[data-bdetail]").onclick = () => switchTab("building");
+}
+
+// campus health gauge: 40 segments from red to green with a marker at the score
+function renderGauge(score) {
+  const n = 40, g = $("#gauge");
+  if (!g.children.length) g.innerHTML = Array.from({ length: n }, (_, i) => `<i style="--h:${Math.round((i / (n - 1)) * 120)}"></i>`).join("") + "<b></b>";
+  g.style.setProperty("--pos", `${Math.max(0, Math.min(100, score))}%`);
+  $("#healthWord").textContent = score >= 85 ? "Good" : score >= 70 ? "Fair" : score >= 55 ? "Needs work" : "Poor";
+}
+
+// building search in the map bar
+$("#bldSearch").addEventListener("change", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const hit = Object.entries(S?.buildings || {}).find(([id, b]) => b.name.toLowerCase() === q || id === q)
+    || Object.entries(S?.buildings || {}).find(([id, b]) => b.name.toLowerCase().includes(q));
+  if (!hit) return toast("No building matches that name.");
+  selectBuilding(hit[0]);
+  const f = campus.features.find((x) => x.properties.id === hit[0]);
+  if (f) flyTo(...f.properties.center, 17.6);
+  e.target.value = ""; e.target.blur();
+});
+$("#layersBtn").onclick = () => { const p = $("#layersPop"); p.hidden = !p.hidden; $("#layersBtn").setAttribute("aria-expanded", String(!p.hidden)); $("#layersBtn").classList.toggle("on", !p.hidden); };
 $("#walkBld").onchange = (e) => { selectBuilding(e.target.value); openWalk(e.target.value); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && walkId) closeWalk(); });
 $("#orbitBtn").onclick = () => toggleOrbit();
@@ -1256,7 +1327,7 @@ const STEPS = [
   ["One click sends it to Plumbing with a 4-hour deadline. It only closes when CLIP verifies an 'after fix' photo.",
     async () => { const a = await waitAlert((x) => x.rule === "main-leak" && x.status === "open", 2000); if (a) await post(`/api/alerts/${a.id}/order`); switchTab("alerts"); }],
   ["The SOE overhead tank's float switch fails: the pump never stops and clean water spills off the roof.",
-    async () => { await post("/api/scenario/tank_overflow"); const a = await waitAlert((x) => x.rule === "tank-overflow"); await selectBuilding("soe-a-block"); $("#tankList").scrollIntoView({ behavior: "smooth" }); if (a) flyTo(a.lng, a.lat); }],
+    async () => { await post("/api/scenario/tank_overflow"); const a = await waitAlert((x) => x.rule === "tank-overflow"); await selectBuilding("soe-a-block", true); $("#tankList").scrollIntoView({ behavior: "smooth" }); if (a) flyTo(a.lng, a.lat); }],
   ["An AC is left on in an empty classroom after hours. The camera sees nobody, so it is flagged with its rupee cost.",
     async () => { await post("/api/scenario/ac_night"); $("#roomGrid").scrollIntoView({ behavior: "smooth" }); }],
   ["Bins: YOLO reads fill level from cameras, the twin forecasts time-to-full and plans an optimised pickup route.",
@@ -1306,6 +1377,8 @@ async function boot() {
   const blds = Object.entries(st.buildings);
   $("#bldSelect").innerHTML = blds.map(([id, b]) => `<option value="${id}">${b.name}</option>`).join("");
   $("#walkBld").innerHTML = $("#bldSelect").innerHTML;
+  $("#bldList").innerHTML = blds.map(([, b]) => `<option value="${esc(b.name)}"></option>`).join("");
+  $("#ovCount").textContent = blds.length;
   $("#vRoom").innerHTML += Object.keys(st.rooms).map((r) => `<option value="${r}">${r.split("/")[1]}</option>`).join("");
   $("#vBin").innerHTML += Object.keys(st.bins).map((b) => `<option value="${b}">${b}</option>`).join("");
   $("#vCam").innerHTML += campus.features.filter((f) => f.properties.type === "camera")
@@ -1314,7 +1387,7 @@ async function boot() {
   $("#repZone").innerHTML = `<option value="">(click map)</option>` + campus.features.map((f) => `<option value="${f.properties.id}">${f.properties.name}</option>`).join("");
   render(st);
   selectBuilding(blds[0][0]);
-  switchTab("alerts");
+  switchTab("overview");
   runSim();
   loadReports();
   loadLedger();
