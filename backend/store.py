@@ -92,7 +92,7 @@ def snapshot(twin, desk):
         d["_emb"] = [round(float(x), 5) for x in r["_emb"]] if r.get("_emb") is not None else None
         d["_confirmers"] = sorted(r.get("_confirmers", ()))
         reports.append(d)
-    return {"alerts": alerts, "orders": orders, "reports": reports, "points": desk.points}
+    return {"alerts": alerts, "orders": orders, "reports": reports, "bonus_points": desk.points}
 
 
 def restore(store, twin, desk):
@@ -130,7 +130,7 @@ def restore(store, twin, desk):
         desk.reports.append(d)
     if reports:
         desk._ids = itertools.count(len(reports) + 1)
-    desk.points.update(store.load("points", {}) or {})
+    desk.points.update(store.load("bonus_points", {}) or {})   # "points" (old format) also held per-report credits
     return {"alerts": len(alerts), "orders": len(orders), "reports": len(reports)}
 
 

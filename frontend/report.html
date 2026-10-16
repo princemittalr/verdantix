@@ -43,6 +43,7 @@
   .preview img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
   .preview button { position: absolute; top: 8px; right: 8px; padding: 6px 12px; font-size: 13px; background: rgba(22,26,44,.75); }
   .hint { font-size: 12.5px; color: var(--muted); }
+  .outbox { background: #fdf1df; color: #9a5a08; padding: 9px 12px; border-radius: 12px; font-weight: 600; }
   .loc { display: flex; gap: 10px; align-items: center; font-size: 14px; }
   .loc .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
   .loc.ok .dot { background: var(--ok); } .loc.bad .dot { background: var(--crit); }
@@ -98,9 +99,10 @@
     </label>
 
     <label class="f">What's wrong? (optional)<input id="note" maxlength="140" placeholder="e.g. tap running in 2nd floor washroom"></label>
-    <label class="f">Your name (optional, earns green credits)<input id="name" maxlength="40" autocomplete="name"></label>
+    <label class="f">Your name (optional, earns Green Points and badges)<input id="name" maxlength="40" autocomplete="name"></label>
     <button id="go">Send report</button>
   </form>
+  <p id="outbox" class="hint outbox" hidden></p>
   <div id="out"></div>
   <section class="card" id="mine" hidden><div class="q">Your reports</div><div id="mineList"></div>
     <p class="hint">Status updates as facilities work on it. Kept only on this phone.</p></section>
@@ -176,9 +178,9 @@ $("#cam").onchange = onPhoto;
 $("#gal").onchange = onPhoto;
 $("#rmPhoto").onclick = () => { blob = null; $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false; };
 
-const LABEL = { location: "On campus", duplicate: "New photo", issue: "Problem seen", repeat: "Not a repeat" };
+const LABEL = { location: "On campus", quality: "Clear photo", duplicate: "New photo", issue: "Problem seen", repeat: "Not a repeat" };
 function steps(failed, withPhoto) {
-  const checks = withPhoto ? ["location", "duplicate", "issue", "repeat"] : ["location", "repeat"];
+  const checks = withPhoto ? ["location", "quality", "duplicate", "issue", "repeat"] : ["location", "repeat"];
   const at = failed ? checks.indexOf(failed) : checks.length;
   return `<div class="steps">${checks.map((c, i) => `<span class="${i < at ? "pass" : i === at ? "fail" : ""}">${LABEL[c]}</span>`).join("")}</div>`;
 }
@@ -203,27 +205,91 @@ $("#f").onsubmit = async (e) => {
   fd.append("lat", loc.lat); fd.append("lng", loc.lng); fd.append("accuracy_m", loc.acc || 0);
   fd.append("note", $("#note").value.trim()); fd.append("reporter", name);
   $("#go").disabled = true; $("#go").textContent = blob ? "Checking the photo with AI…" : "Sending…";
+  const clearForm = () => {
+    $("#f").reset(); $("#name").value = name; blob = null;
+    $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false;
+    try { sessionStorage.removeItem(DRAFT); } catch {}
+  };
   try {
-    const r = await fetch(API + "/api/reports", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || r.statusText);
-    const credits = d.credits != null ? ` You have ${d.credits} green credits.` : "";
-    $("#out").innerHTML = d.ok
-      ? `<div class="result"><b>${d.verified ? "Verified and sent" : "Sent to facilities"}: ${d.report.id}</b>${steps(null, !!blob)}
-         <p class="sub">${d.verified ? `AI confirmed ${esc(d.report.kind)} in your photo.` : "It's marked unverified until someone else confirms it or staff check it."} Alert ${d.alert} is on the twin.${credits}</p></div>`
-      : `<div class="result no"><b>${d.check === "repeat" ? "Already reported, thanks" : "Not sent yet"}</b>${steps(d.check, !!blob)}<p class="sub">${esc(d.message)}</p></div>`;
-    if (d.ok) {
-      remember(d.report.id);
-      $("#f").reset(); $("#name").value = name; blob = null;
-      $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false;
-      try { sessionStorage.removeItem(DRAFT); } catch {}
-    }
+    const d = await sendReport(fd);
+    showResult(d, !!blob);
+    if (d.ok) clearForm();
   } catch (err) {
-    $("#out").innerHTML = `<div class="result no"><b>Couldn't send</b><p class="sub">${esc(err.message)}. Check your connection and send again; your details are kept.</p></div>`;
+    if (err.offline && await queueReport(fd, blob)) {   // no signal: keep it on the phone and send it later
+      $("#out").innerHTML = `<div class="result"><b>Saved on this phone</b><p class="sub">No connection right now. It will be sent automatically when you're back online, with the time you took it.</p></div>`;
+      clearForm();
+    } else {
+      $("#out").innerHTML = `<div class="result no"><b>Couldn't send</b><p class="sub">${esc(err.message)}. Check your connection and send again; your details are kept.</p></div>`;
+    }
   }
   $("#go").disabled = false; $("#go").textContent = "Send report";
   $("#out").scrollIntoView({ behavior: "smooth" });
 };
+
+async function sendReport(fd) {
+  let r;
+  try { r = await fetch(API + "/api/reports", { method: "POST", body: fd }); }
+  catch (e) { const err = new Error("No connection"); err.offline = true; throw err; }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+}
+function showResult(d, withPhoto) {
+  const credits = d.credits != null ? ` You have ${d.credits} Green Points.` : "";
+  const wt = d.waste_type ? `<p class="sub"><b>${esc(d.waste_type.name)}</b>: routed to ${esc(d.waste_type.team)}, to be handled within ${d.waste_type.deadline_h} hours.</p>` : "";
+  $("#out").innerHTML = d.ok
+    ? `<div class="result"><b>${d.verified ? "Verified and sent" : "Sent to facilities"}: ${d.report.id}</b>${steps(null, withPhoto)}
+       <p class="sub">${d.verified ? `AI confirmed ${esc(d.report.kind)} in your photo.` : "It's marked unverified until someone else confirms it or staff check it."} Alert ${d.alert} is on the twin.${credits}</p>${wt}</div>`
+    : `<div class="result no"><b>${d.check === "repeat" ? "Already reported, thanks" : "Not sent yet"}</b>${steps(d.check, withPhoto)}<p class="sub">${esc(d.message)}</p></div>`;
+  if (d.ok) remember(d.report.id);
+}
+
+// Offline outbox (idea from Clean City): reports made without signal wait in IndexedDB and go out when the phone is back online.
+const OUTBOX = "vx-outbox";
+function db() {
+  return new Promise((res, rej) => {
+    const q = indexedDB.open(OUTBOX, 1);
+    q.onupgradeneeded = () => q.result.createObjectStore("q", { keyPath: "id", autoIncrement: true });
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+}
+async function queueReport(fd, photo) {
+  try {
+    const fields = {};
+    for (const [k, v] of fd.entries()) if (k !== "file") fields[k] = v;
+    const d = await db();
+    await new Promise((res, rej) => { const t = d.transaction("q", "readwrite"); t.objectStore("q").add({ fields, photo: photo || null, at: Date.now() }); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    outboxBadge();
+    return true;
+  } catch { return false; }
+}
+async function outboxAll() {
+  try { const d = await db(); return await new Promise((res) => { const q = d.transaction("q").objectStore("q").getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => res([]); }); }
+  catch { return []; }
+}
+async function outboxDrop(id) { try { const d = await db(); d.transaction("q", "readwrite").objectStore("q").delete(id); } catch {} }
+async function outboxBadge() {
+  const n = (await outboxAll()).length;
+  $("#outbox").hidden = !n;
+  $("#outbox").textContent = `${n} report${n === 1 ? "" : "s"} waiting for signal on this phone`;
+}
+let flushing = false;
+async function flushOutbox() {
+  if (flushing || !navigator.onLine) return;
+  flushing = true;
+  try {
+    for (const item of await outboxAll()) {
+      const fd = new FormData();
+      const taken = new Date(item.at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+      for (const [k, v] of Object.entries(item.fields)) fd.append(k, k === "note" ? `${v ? v + " " : ""}(taken ${taken}, sent when back online)`.slice(0, 300) : v);
+      if (item.photo) fd.append("file", item.photo, "report.jpg");
+      try { const d = await sendReport(fd); await outboxDrop(item.id); showResult(d, !!item.photo); }
+      catch (e) { if (e.offline) break; await outboxDrop(item.id); }   // server said no (e.g. off campus): don't retry forever
+    }
+  } finally { flushing = false; outboxBadge(); }
+}
+addEventListener("online", flushOutbox);
+flushOutbox(); outboxBadge();
 
 // Report status tracking: ids are kept on this phone only; status comes from the server.
 const MINE = "vx-mine";
@@ -235,7 +301,7 @@ async function loadMine() {
   if (!ids.length) return;
   $("#mine").hidden = false;
   const rows = await Promise.all(ids.map((id) => fetch(`${API}/api/reports/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)));
-  $("#mineList").innerHTML = rows.map((r, i) => r ? `<div class="mine"><b>${r.id}</b> ${esc(r.kind)} near ${esc(r.zone)}
+  $("#mineList").innerHTML = rows.map((r, i) => r ? `<div class="mine"><b>${r.id}</b> ${esc(r.waste_type ? r.waste_type.name : r.kind)} near ${esc(r.zone)}
       <span class="${r.status}">${STATUS[r.status] || r.status}${r.resolution ? `: ${esc(r.resolution)}` : ""}</span>
       <small>${r.verified ? "Verified" : "Unverified"}, ${r.confirmations} confirmation${r.confirmations === 1 ? "" : "s"}</small></div>`
     : `<div class="mine"><b>${ids[i]}</b> <small>No longer on the server (it may have restarted).</small></div>`).join("");

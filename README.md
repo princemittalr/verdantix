@@ -79,6 +79,16 @@ Open http://localhost:8000.
 - **Reporter app** (`/report`): installable PWA (Android "Install app", or package as an APK with PWABuilder from the live URL). Pick a category, add a photo (optional) and GPS. Photo reports are verified by AI instantly; reports without a photo are filed as unverified and become verified when 3 people report the same category within 60 m.
 - **CCTV auto-reporting**: `POST /api/cctv/<camera>` with a frame. If the vision model sees garbage, a leak or lights on in an empty room, an alert is raised at that camera's map location; it closes itself after 3 clean frames. Use the Vision tab ("Use as CCTV camera") or `scripts/cctv_agent.py <camera> <webcam|video|rtsp-url>`.
 
+## Built on our Clean City app
+
+These parts come from [Clean City](https://github.com/pandeylakshya207-max/clean-city-app), the team's earlier street-garbage reporting app for Bengaluru, adapted from city wards to one campus:
+
+- **Waste type and the right team**: the AI tells mixed, plastic, food/wet, construction, garden, bulky, e-waste, biomedical waste and dead animals apart. Each type has its own campus team and deadline (biomedical 2 h, carcass 4 h, food 3 h, debris 48 h); hazardous types are raised as critical.
+- **Photo quality gate before any AI call**: too small, too dark or blank photos are rejected instantly (also skips dark CCTV frames, which saves API quota).
+- **Green Points and badges**: +10 verified report, +5 unverified, +5 more when it gets fixed, +2 per confirmation, -3 for re-sending an already-reported photo, -5 if facilities reject it as false. Points are recomputed from the reports, so they can't drift.
+- **Hotspot time patterns and recurrence**: for every DBSCAN hotspot, the 3-hour window when the problem usually appears, the busiest weekday, a patrol time one hour earlier, how often it comes back and when it is likely next (a simple average of past gaps, not a trained forecast).
+- **Offline outbox**: a report made with no signal is kept on the phone (IndexedDB) and sent automatically when the phone is back online, with the time it was taken.
+
 ## Real sensors
 
 ```bash

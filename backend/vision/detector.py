@@ -20,6 +20,7 @@ from PIL import Image
 
 import config as C
 from config import WEIGHTS
+from vision import waste_types as WT
 
 
 class VisionUnavailable(Exception):
@@ -29,11 +30,27 @@ class VisionUnavailable(Exception):
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 LITE_PROMPT = """You are the camera sensor of a university campus sustainability digital twin.
 Look at the photo and reply with ONLY this JSON (no markdown):
-{"waste": 0-1, "water": 0-1, "energy": 0-1, "clean": 0-1, "people": <int>, "bin": "empty"|"half"|"overflow"|"none", "labels": ["<short description>", "..."]}
+{"waste": 0-1, "water": 0-1, "energy": 0-1, "clean": 0-1, "people": <int>, "bin": "empty"|"half"|"overflow"|"none", "waste_type": "mixed"|"plastic"|"food"|"construction"|"garden"|"bulky"|"ewaste"|"medical"|"dead_animal"|"none", "labels": ["<short description>", "..."]}
 waste = overflowing bin, litter or dumped garbage. water = leaking pipe, puddle, tap left running.
 energy = lights, fans, AC or projector switched on in an empty room. clean = none of these problems.
 The four scores are probabilities that sum to 1. people = number of people visible. bin = fill level of the main
-garbage bin if one is visible, else "none". labels = up to 3 short descriptions of what you see, most relevant first."""
+garbage bin if one is visible, else "none". waste_type = the main kind of waste if any is visible (food = wet/kitchen
+waste, medical = syringes, masks, gloves, medicine; ewaste = electronics, cables, batteries; bulky = furniture), else "none".
+labels = up to 3 short descriptions of what you see, most relevant first."""
+
+
+def quality_problem(img):
+    """Cheap checks before any AI call (from Clean City): too small, too dark, or a blank frame."""
+    from PIL import ImageStat
+    w, h = img.size
+    if min(w, h) < 240:
+        return f"The photo is too small ({w}x{h}). Take it again a little closer."
+    st = ImageStat.Stat(img.convert("L"))
+    if st.mean[0] < 30:
+        return "The photo is too dark to check. Turn on a light or use the flash."
+    if st.stddev[0] < 10:
+        return "The photo looks blank. Point the camera at the problem and try again."
+    return None
 
 ISSUE_PROMPTS = {
     "waste": ["a photo of an overflowing garbage bin", "a photo of litter and trash scattered on the ground",
@@ -132,7 +149,11 @@ class Vision:
             people = int(d.get("people") or 0)
         except (TypeError, ValueError):
             people = 0
-        return {"people": people, "objects": [], "bin": bin_, "clip": clip, "size": small.size}
+        wt = str(d.get("waste_type", "none")).lower().strip()
+        waste_type = None
+        if scores["waste"] >= 0.35 or (bin_ and bin_["fill"] >= 100):
+            waste_type = WT.info(wt if wt in WT.TYPES else WT.DEFAULT, scores["waste"])
+        return {"people": people, "objects": [], "bin": bin_, "clip": clip, "size": small.size, "waste_type": waste_type}
 
     # Models load lazily so the API starts instantly.
     def yolo(self):
@@ -161,6 +182,11 @@ class Vision:
                 # Project the pooled outputs explicitly; works across transformers 4.x and 5.x.
                 txt = model.text_projection(model.text_model(**t).pooler_output)
                 self._txt = txt / txt.norm(dim=-1, keepdim=True)
+            self.type_labels = WT.prompts()
+            with torch.no_grad():
+                t = proc(text=[p for _, p in self.type_labels], return_tensors="pt", padding=True)
+                txt = model.text_projection(model.text_model(**t).pooler_output)
+                self._type_txt = txt / txt.norm(dim=-1, keepdim=True)
             self._clip = (model, proc)
             self.status["clip"] = "openai/clip-vit-base-patch32 (zero-shot)"
         return self._clip
@@ -186,6 +212,16 @@ class Vision:
         issue = max((c for c in cats if c != "clean"), key=cats.get)
         return {"scores": {k: round(v, 3) for k, v in cats.items()}, "issue": issue, "issue_score": round(cats[issue], 3),
                 "top": [{"label": l.replace("a photo of ", ""), "p": round(p, 3)} for p, l in top]}, emb.numpy()
+
+    def waste_type(self, emb):
+        """CLIP zero-shot over the waste-type descriptions; low confidence falls back to mixed waste."""
+        import torch
+        probs = (100.0 * torch.as_tensor(emb) @ self._type_txt.T).softmax(dim=-1).numpy()
+        per = {}
+        for (key, _), p in zip(self.type_labels, probs):
+            per[key] = per.get(key, 0.0) + float(p)
+        best = max(per, key=per.get)
+        return WT.info(best if per[best] >= WT.MIN_CONFIDENCE else WT.DEFAULT, per[best])
 
     def detect(self, img):
         out = {"people": 0, "objects": [], "bin": None}
@@ -241,7 +277,11 @@ class Vision:
         img.thumbnail((960, 960))
         det = self.detect(img)
         clip, emb = self.classify(img)
-        return {**det, "clip": clip, "size": img.size}, emb
+        wt = None
+        if clip["scores"].get("waste", 0) >= 0.35 or (det["bin"] and det["bin"]["fill"] >= 100):
+            with self._lock:
+                wt = self.waste_type(emb)
+        return {**det, "clip": clip, "size": img.size, "waste_type": wt}, emb
 
     def verify_fixed(self, img, kind):
         """Proof photo passes when the original issue is no longer visible."""

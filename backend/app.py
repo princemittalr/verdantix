@@ -30,7 +30,7 @@ from ai import copilot, local_llm, report
 from security import client_ip, is_operator, limit, read_upload, require_operator, require_sensor
 from twin.engine import CLOSED, FEEDBACK, Twin
 from twin.hotspots import hotspots
-from vision.detector import Vision, VisionUnavailable
+from vision.detector import Vision, VisionUnavailable, quality_problem
 from vision.reports import ReportDesk
 
 log = logging.getLogger("verdantix")
@@ -418,6 +418,10 @@ async def cctv_frame(cam: str, request: Request, file: UploadFile = File(...), w
     if cam not in twin.campus.of_type("camera"):
         raise HTTPException(404, f"Unknown camera {cam}. Cameras: {', '.join(twin.campus.of_type('camera'))}")
     img = _img(await read_upload(file))
+    bad = quality_problem(img)
+    if bad:   # covered lens or a dark night frame: skip the AI call, change nothing
+        return {"camera": cam, "issue": "none", "score": 0.0, "threshold": C.CCTV_RAISE, "people": 0,
+                "action": "skipped: " + bad.split(".")[0].lower(), "incident": None, "top": [], "objects": [], "size": img.size}
     try:
         result, _ = await asyncio.to_thread(vision.analyze, img)
     except VisionUnavailable as e:
@@ -429,7 +433,8 @@ async def cctv_frame(cam: str, request: Request, file: UploadFile = File(...), w
     issue, score = clip["issue"], clip["issue_score"]
     if result.get("bin") and result["bin"]["fill"] >= 100:
         issue, score = "waste", max(score, result["bin"]["conf"])
-    st.update(at=time.time(), last={"issue": issue, "score": round(score, 3), "people": result["people"]})
+    st.update(at=time.time(), last={"issue": issue, "score": round(score, 3), "people": result["people"],
+                                    "waste_type": (result.get("waste_type") or {}).get("name")})
     action, incident = "none", None
     if score >= C.CCTV_RAISE:
         st["clean"] = 0
@@ -454,15 +459,19 @@ async def cctv_frame(cam: str, request: Request, file: UploadFile = File(...), w
                 incident = a.id
             else:
                 url = _save(img, f"cctv-{cam}")
-                a = twin._raise(issue, f"cctv-{issue}", cam, f"{name} sees {CCTV_TEXT[issue]}",
+                wt = result.get("waste_type") if issue == "waste" else None
+                seen_text = wt["name"].lower() if wt and wt["key"] != "mixed" else CCTV_TEXT[issue]
+                a = twin._raise(issue, f"cctv-{issue}", cam, f"{name} sees {seen_text}",
                                 f"Detected by camera AI over {C.CCTV_MIN_FRAMES} frames (model score {score:.2f}, "
                                 f"threshold {C.CCTV_RAISE}): " + ", ".join(t["label"] for t in clip["top"][:2]) + ".",
                                 "crit" if score >= 0.8 or issue == "water" else "warn", "camera",
                                 {"water": 300, "waste": 150, "energy": 200}[issue], 2.0,
                                 {"image": url, "_last_img": time.time(), "clip": clip["top"], "score": round(score, 3),
                                  "threshold": C.CCTV_RAISE, "camera": cam, "frames": C.CCTV_MIN_FRAMES,
-                                 "model": vision.health["mode"]}, twin.clock.now())
+                                 "model": vision.health["mode"], **({"waste_type": wt} if wt else {})}, twin.clock.now())
                 a.lng, a.lat = lng, lat
+                if wt and wt.get("hazardous"):
+                    a.severity = "crit"
                 action, incident = f"alert {a.id}", a.id
             twin._snap = None
     elif score < C.CCTV_CLEAR:
@@ -479,7 +488,8 @@ async def cctv_frame(cam: str, request: Request, file: UploadFile = File(...), w
     else:
         action = "uncertain (between thresholds)"
     return {"camera": cam, "issue": issue, "score": round(score, 3), "threshold": C.CCTV_RAISE, "people": result["people"],
-            "action": action, "incident": incident, "top": clip["top"], "objects": result["objects"], "size": result["size"]}
+            "action": action, "incident": incident, "top": clip["top"], "objects": result["objects"], "size": result["size"],
+            "waste_type": result.get("waste_type")}
 
 
 # ---------- problem reports (students, staff) ----------
@@ -612,8 +622,9 @@ def route():
 
 @app.get("/api/hotspots")
 def get_hotspots():
+    names = {k: f["properties"].get("name", k) for k, f in twin.campus.features.items()}
     return hotspots(twin.events + [{"kind": r["kind"], "asset": r["zone"], "lng": r["lng"], "lat": r["lat"], "at": r["created"]} for r in desk.reports],
-                    twin.clock.now())
+                    twin.clock.now(), names=names)
 
 
 @app.get("/api/history")

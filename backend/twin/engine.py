@@ -711,9 +711,12 @@ class Twin:
             if a.work_order and self.orders[a.work_order].status != "cancelled":
                 return self.orders[a.work_order]   # idempotent: one live order per incident
             sim = self.clock.now()
-            o = WorkOrder(id=f"WO{next(self._ids):04d}", alert_id=a.id, team=TEAM[a.kind], title=a.title,
+            wt = a.evidence.get("waste_type") if a.kind == "waste" else None   # specialist team + deadline per waste type
+            team = wt["team"] if wt else TEAM[a.kind]
+            hours = wt["deadline_h"] if wt else C.DEADLINE_H[a.kind]
+            o = WorkOrder(id=f"WO{next(self._ids):04d}", alert_id=a.id, team=team, title=a.title,
                           created=sim.isoformat(timespec="minutes"),
-                          deadline=(sim + timedelta(hours=C.DEADLINE_H[a.kind])).isoformat(timespec="minutes"), note=note)
+                          deadline=(sim + timedelta(hours=hours)).isoformat(timespec="minutes"), note=note)
             self.orders[o.id] = o
             a.work_order, a.status = o.id, "assigned"
             self.log(o, "assigned", by, f"to {o.team}, due {o.deadline.replace('T', ' ')}" + (f": {note}" if note else ""))
@@ -886,11 +889,12 @@ class Twin:
                     hist.append({"kind": "energy", "asset": b, "lng": lng, "lat": lat, "at": at.isoformat(timespec="minutes"), "rule": "load-spike"})
         for d in range(days, 0, -1):
             for b in self.campus.of_type("bin"):
-                peak = max(self.bin_fill(b, (sim - timedelta(days=d)).replace(hour=h, minute=0))[0] for h in (6, 14, 23))
-                if peak >= 95:
+                day = sim - timedelta(days=d)
+                full = next((h for h in (7, 10, 13, 16, 19, 22) if self.bin_fill(b, day.replace(hour=h, minute=0))[0] >= 95), None)
+                if full is not None:   # stamped at the first check of the day it was full, so time-of-day patterns are real
                     lng, lat = self.campus.location(b)
                     hist.append({"kind": "waste", "asset": b, "lng": lng, "lat": lat,
-                                 "at": (sim - timedelta(days=d)).isoformat(timespec="minutes"), "rule": "overflow"})
+                                 "at": day.replace(hour=full, minute=0).isoformat(timespec="minutes"), "rule": "overflow"})
         self.events = hist + self.events
         return len(hist)
 

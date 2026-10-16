@@ -459,7 +459,7 @@ function urgency(a, o) {
   return sev * (1 + (a.inr_per_day || 0) / 1000) * (o?.overdue ? 2 : 1) * (a.source === "student-unverified" ? 0.6 : 1);
 }
 function nextAction(a, o) {
-  if (!o) return ["Assign to " + (TEAMS[a.kind] || "Facilities"), `data-assign="${a.id}"`];
+  if (!o) return ["Assign to " + teamFor(a), `data-assign="${a.id}"`];
   if (o.status === "assigned" || o.status === "reopened") return ["Acknowledge", `data-ostatus="${o.id}:acknowledged"`];
   if (o.status === "acknowledged") return ["Start work", `data-ostatus="${o.id}:in_progress"`];
   return ["Upload after-fix photo", `data-proofpick="${o.id}"`];
@@ -473,7 +473,7 @@ function renderPriority(st) {
     return `<div class="prio ${a.severity}" data-fly="${a.lng},${a.lat}">
       <div class="t"><span class="aid">${a.id}</span>${esc(a.title)}</div>
       <div class="m"><span>about ₹${fmt(a.inr_per_day)} a day (estimated)</span><span class="pill prov">${pv}</span>
-        <span>${o ? `${o.team}, due ${when(o.deadline)}${o.overdue ? ' <b class="late">overdue</b>' : ""}` : `${TEAMS[a.kind]} not assigned yet`}</span></div>
+        <span>${o ? `${esc(o.team)}, due ${when(o.deadline)}${o.overdue ? ' <b class="late">overdue</b>' : ""}` : `${esc(teamFor(a))} not assigned yet`}</span></div>
       <button class="dark" ${attr}>${label}</button></div>`;
   }).join("") : "";
 }
@@ -488,6 +488,12 @@ function feedbackBtns(a) {
   return `<div class="fb">Was this right? <button data-fb="${a.id}:correct">Correct</button><button data-fb="${a.id}:false_positive">False alarm</button>
     <button data-fb="${a.id}:duplicate">Duplicate</button><button data-fb="${a.id}:uncertain">Needs inspection</button></div>`;
 }
+const teamFor = (a) => a.evidence?.waste_type?.team || TEAMS[a.kind] || "Facilities";
+function wtPill(a) {
+  const w = a.evidence?.waste_type;
+  if (!w) return "";
+  return `<div class="m"><span class="pill wt ${w.hazardous ? "haz" : ""}">${w.hazardous ? "⚠ " : ""}${esc(w.name)}</span><span>send ${esc(w.team)}, within ${w.deadline_h} h</span></div>`;
+}
 function alertCard(a) {
   const o = a.work_order ? S.orders.find((x) => x.id === a.work_order) : null;
   const [pv, pc] = prov(a.source);
@@ -495,11 +501,12 @@ function alertCard(a) {
   return `<div class="card clickable ${isClosed(a) ? "ok faded" : a.severity}" data-fly="${a.lng},${a.lat}">
     <div class="t"><span class="aid">${a.id}</span>${esc(a.title)}</div>
     <div class="d">${esc(a.detail)}</div>
+    ${wtPill(a)}
     <div class="m"><span class="pill prov ${pc}">${pv}</span><span>detected ${when(a.created)}</span>${a.updated !== a.created ? `<span>updated ${when(a.updated)}</span>` : ""}</div>
     <div class="m"><span>about ₹${fmt(a.inr_per_day)}/day, ${a.co2_kg_per_day} kg CO₂/day (estimated)</span>${score}</div>
     <div class="m"><span class="st st-${a.status}">${a.status.replace("-", " ")}</span>${o ? `<span>${o.id}: ${o.team}, ${o.status.replace(/_/g, " ")}, due ${when(o.deadline)}${o.overdue ? ' <b class="late">overdue</b>' : ""}</span>` : ""}</div>
     ${a.evidence?.image ? `<img src="${media(a.evidence.image)}" alt="Evidence photo" loading="lazy">` : ""}
-    ${a.status === "open" ? `<div class="act"><button data-assign="${a.id}">Assign to ${TEAMS[a.kind] || "Facilities"}</button>
+    ${a.status === "open" ? `<div class="act"><button data-assign="${a.id}">Assign to ${esc(teamFor(a))}</button>
       <button class="ghost" data-dismiss="${a.id}">Dismiss</button></div>` : ""}
     ${isClosed(a) ? `<div class="act"><button class="ghost" data-reopen="${a.id}">Reopen</button></div>` : ""}
     ${feedbackBtns(a)}
@@ -537,6 +544,21 @@ function renderAlerts(st) {
   $("#orderList").querySelectorAll(".card").forEach((c) => { if (ordersOpen.has(c.querySelector(".aid")?.textContent)) c.querySelector("details")?.setAttribute("open", ""); });
 }
 $("#alertFilters").addEventListener("change", (e) => { filt[e.target.name] = e.target.value; if (S) renderAlerts(S); });
+
+// Recurring hotspots: where problems keep coming back, when they usually start, and when to patrol.
+const nice = (iso) => iso ? new Date(iso).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+async function loadHotspots() {
+  let hs;
+  try { hs = await api("/api/hotspots"); } catch { return; }
+  $("#hotList").innerHTML = hs.length ? hs.slice(0, 4).map((h) => `<div class="card clickable hot-${h.priority}" data-fly="${h.lng},${h.lat}">
+      <div class="t">${esc(h.names.slice(0, 2).join(", "))}${h.names.length > 2 ? ` +${h.names.length - 2}` : ""} <span class="pill pri-${h.priority}">${h.priority}</span></div>
+      <div class="m"><span>${h.events} ${h.main_kind} events in 30 days</span>${h.recurrence.every_days ? `<span>comes back about every ${h.recurrence.every_days} days</span>` : ""}</div>
+      ${h.timing.peak ? `<div class="m"><span>usually ${h.timing.peak}${h.timing.busy_day ? `, mostly ${h.timing.busy_day}s` : ""}</span><span class="patrol">patrol at ${h.timing.patrol}</span></div>` : ""}
+      ${h.recurrence.next ? `<div class="m"><span>next likely around <b>${nice(h.recurrence.next)}</b></span></div>` : ""}
+      <div class="d">${esc(h.suggestion.replace(/^Check here around [^.]*\. /, ""))}</div></div>`).join("")
+    + `<div class="sub rules">DBSCAN over 30 days of incidents (40 m radius, 3+ events). "Comes back" and "next likely" are simple averages of past gaps, not a trained forecast.</div>`
+    : `<div class="sub">No recurring hotspots yet. A place needs 3 incidents within 40 m.</div>`;
+}
 
 async function selectBuilding(id) {
   selected = id;
@@ -771,7 +793,7 @@ async function analyseOnce() {
     drawBoxes({ objects: r.objects, size: r.size }, f.w, f.h);
     const name = $("#vCam").selectedOptions[0].textContent;
     $("#vOut").innerHTML = `<div class="cctvres ${r.action.startsWith("alert") ? "hit" : ""}"><b>${esc(name)}</b>:
-        ${r.score >= r.threshold ? `sees <b>${esc(r.issue)}</b>` : "nothing wrong in view"}: model score ${r.score.toFixed(2)} (raise at ${r.threshold}), ${r.people} people</div>
+        ${r.score >= r.threshold ? `sees <b>${esc(r.waste_type && r.issue === "waste" ? r.waste_type.name.toLowerCase() : r.issue)}</b>` : "nothing wrong in view"}: model score ${r.score.toFixed(2)} (raise at ${r.threshold}), ${r.people} people</div>
       <div>${r.top.map((t) => `<span class="tag">${esc(t.label)}</span>`).join("")}</div>
       ${r.action !== "none" ? `<div><b>${r.action.startsWith("alert") ? "Reported automatically as " + r.action.split(" ")[1] : r.action.startsWith("cleared") ? "Problem gone: closed " + r.action.split(" ")[1] : esc(r.action)}</b></div>` : ""}
       <div class="sub">Model scores are not calibrated probabilities. One incident per camera and problem; it opens after 2 detections and closes after 3 clean frames.</div>`;
@@ -977,17 +999,20 @@ $("#repForm").onsubmit = async (e) => {
   catch (err) { $("#repResult").innerHTML = `<div class="card warn"><div class="t">Couldn't send</div><div class="d">${esc(err.message)}. Your details are still here; send again.</div></div>`; return; }
   $("#repResult").innerHTML = r.ok
     ? `<div class="card ok"><div class="t">${r.verified ? "Verified" : "Sent, unverified"}: ${r.report.id}, alert ${r.alert}</div>
-       <div class="d">${r.report.clip ? `AI sees ${esc(r.report.clip.issue)} (model score ${Number(r.report.clip.issue_score).toFixed(2)})` : "No photo: confirmed when others report the same thing nearby"}${r.credits != null ? `. ${r.credits} green credits` : ""}</div></div>`
+       <div class="d">${r.report.clip ? `AI sees ${esc(r.report.clip.issue)} (model score ${Number(r.report.clip.issue_score).toFixed(2)})` : "No photo: confirmed when others report the same thing nearby"}${r.credits != null ? `. ${r.credits} Green Points` : ""}</div>
+       ${r.waste_type ? `<div class="m"><span class="pill wt ${r.waste_type.hazardous ? "haz" : ""}">${esc(r.waste_type.name)}</span><span>routed to ${esc(r.waste_type.team)}, within ${r.waste_type.deadline_h} h</span></div>` : ""}</div>`
     : `<div class="card warn"><div class="t">${r.check === "repeat" ? "Already reported" : "Not sent"}</div><div class="d">${esc(r.message)}</div></div>`;
   if (r.ok) { $("#repForm").reset(); }
   loadReports();
 };
 async function loadReports() {
   const board = await api("/api/reports/leaderboard");
-  $("#repBoard").innerHTML = board.length ? board.map((b, i) => `<div class="m"><span>${i + 1}.</span><span style="flex:1">${esc(b.name)}</span><b>${b.credits}</b></div>`).join("")
-    : `<div class="sub">Add a name to earn credits: 10 per verified report, 5 unverified, 2 per confirmation, once per person. Names show as first name and initial.</div>`;
+  $("#repBoard").innerHTML = (board.length ? board.map((b, i) => `<div class="m lb"><span>${i + 1}.</span><span style="flex:1">${esc(b.name)}
+      ${(b.badges || []).map((g) => `<i class="badge" title="${esc(g.rule)}">${esc(g.name)}</i>`).join("")}</span><b>${b.credits}</b></div>`).join("")
+    : `<div class="sub">No names on the board yet.</div>`) +
+    `<div class="sub rules">Green Points: +10 verified report, +5 unverified, +5 more when it gets fixed, +2 per confirmation, −3 for re-sending an already-reported photo, −5 if facilities reject it as false. Names show as first name and initial.</div>`;
   const rs = await api("/api/reports");
-  $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card clickable ${r.kind === "water" ? "crit" : "warn"}" data-fly="${r.lng},${r.lat}"><div class="t">${r.id} · ${r.kind} · ${esc(r.zone)} <small class="d">by ${esc(r.reporter || "Anonymous")}</small></div>
+  $("#repList").innerHTML = rs.length ? rs.map((r) => `<div class="card clickable ${r.kind === "water" ? "crit" : "warn"}" data-fly="${r.lng},${r.lat}"><div class="t">${r.id} · ${r.waste_type ? esc(r.waste_type.name) : r.kind} · ${esc(r.zone)} <small class="d">by ${esc(r.reporter || "Anonymous")}</small></div>
     ${r.image ? `<img src="${media(r.image)}" alt="" style="max-width:100%">` : ""}${r.verified === false ? '<div class="m"><span class="pill src-student-unverified">unverified</span></div>' : ""}<div class="m"><span>${r.created.replace("T", " ")}</span><span>+${r.confirmations} confirmations</span><span class="st st-${r.status}">${(r.status || "open").replace("_", " ")}${r.resolution ? ": " + esc(r.resolution) : ""}</span><a href="#" data-alertlink="${r.alert}">${r.alert}</a></div></div>`).join("")
     : `<div class="sub">No student reports yet.</div>`;
 }
@@ -1132,6 +1157,7 @@ async function boot() {
   refreshOperator();
   drawQR($("#qrSmall"), 96);
   setInterval(() => { if ($("#tab-students").classList.contains("on")) loadReports().catch(() => {}); }, 8000);
+  loadHotspots(); setInterval(() => { if ($("#tab-alerts").classList.contains("on")) loadHotspots(); }, 30000);
   connect();
 }
 let lastMsg = Date.now();
