@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=34">
+<link rel="stylesheet" href="style.css?v=40">
 </head>
 <body class="intro">
 <script>try { if (sessionStorage.getItem("vx-entered") || /[?&]skip/.test(location.search)) document.body.classList.remove("intro"); } catch {}</script>
@@ -45,7 +45,7 @@
 <section id="intro" class="intro-screen" aria-labelledby="introTitle">
   <div class="intro-copy">
     <p class="eyebrow"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Verdantix · DSU Harohalli campus</p>
-    <h1 id="introTitle">Enter the<br>living campus.</h1>
+    <h1 id="introTitle">Enter the<br><em>living</em> campus.</h1>
     <p class="lede">A live digital twin of Dayananda Sagar University's Harohalli campus. It watches energy, water and waste in every building, sends the right team when something goes wrong, and proves it was fixed.</p>
     <dl class="intro-stats" id="introStats" aria-live="polite">
       <div><dt>Green score</dt><dd id="iScore">--</dd></div>
@@ -63,12 +63,23 @@
   <p class="intro-hint" aria-hidden="true">The campus behind is the live twin · press Enter</p>
 </section>
 
-<header class="topbar">
-  <div class="brand float" id="brandBtn" role="button" tabindex="0" title="Back to the intro">
-    <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
-    <div><b>Verdantix</b><small>DSU Harohalli campus twin</small></div>
+<nav class="rail" aria-label="Verdantix">
+  <div class="rail-logo" id="brandBtn" role="button" tabindex="0" title="Verdantix: back to the intro"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span></div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Sections">
+    <button data-tab="alerts" class="on"><svg><use href="#i-bell"/></svg><span>Alerts</span><em id="tabAlerts" hidden></em></button>
+    <button data-tab="building"><svg><use href="#i-bld"/></svg><span>Building</span></button>
+    <button data-tab="copilot"><svg><use href="#i-spark"/></svg><span>Copilot</span></button>
+    <button data-tab="whatif"><svg><use href="#i-sliders"/></svg><span>What-if</span></button>
+    <button data-tab="vision"><svg><use href="#i-cam"/></svg><span>Vision</span></button>
+    <button data-tab="students"><svg><use href="#i-users"/></svg><span>Students</span></button>
+    <button data-tab="report"><svg><use href="#i-doc"/></svg><span>Report</span></button>
+    <button data-tab="tour"><svg><use href="#i-360"/></svg><span>360° tour</span></button>
   </div>
+  <button class="rail-btn" id="aboutBtn" title="Data, models and how it works" aria-label="Data, models and how it works"><svg><use href="#i-info"/></svg><span>About</span></button>
+</nav>
 
+<header class="topbar">
+  <div class="ptitle"><b>Verdantix</b><small>DSU Harohalli · live campus twin</small></div>
   <div class="clock float">
     <span id="simTime" class="time">--</span>
     <div class="seg" id="speedSeg" role="group" aria-label="Simulation speed">
@@ -80,40 +91,26 @@
     <span id="iot" class="iot" hidden title="Readings arriving from real sensors">IoT live</span>
     <span id="fresh" class="fresh" title="How recent the dashboard data is">Connecting…</span>
   </div>
-
   <div class="actions">
-    <button id="autoBtn" class="primary"><svg><use href="#i-play"/></svg><span>Guided demo</span></button>
     <button id="qrBtn" class="float-btn" title="Students scan this to report a problem"><svg><use href="#i-qr"/></svg><span>Report QR</span></button>
     <button id="opBtn" class="float-btn" title="Facilities staff: sign in to assign, dismiss and run demo controls"><svg><use href="#i-lock"/></svg><span>Operator sign-in</span></button>
-    <button id="aboutBtn" class="float-btn icon" title="Data and models" aria-label="Data and models"><svg><use href="#i-info"/></svg></button>
+    <button id="autoBtn" class="primary"><svg><use href="#i-play"/></svg><span>Guided demo</span></button>
   </div>
 </header>
 
-<aside class="panel float" id="panel">
-  <section class="health">
-    <div class="ring" id="ring" style="--p:0"><b id="kScore">--</b><small>green score</small><em id="kGrade" hidden></em></div>
-    <div class="vitals">
-      <div><span>Power now</span><b><i id="kPower">--</i> kW</b></div>
-      <div><span>Energy today</span><b><i id="kEnergy">--</i> kWh</b></div>
-      <div><span>Cost today</span><b>₹<i id="kCost">--</i></b></div>
-      <div><span>CO₂ today</span><b><i id="kCo2">--</i> kg</b></div>
-      <div><span>Water today</span><b><i id="kWater">--</i> kL</b></div>
-      <div class="hot"><span>Open alerts</span><b><i id="kAlerts">--</i></b><em id="kWaste"></em></div>
-    </div>
-    <p class="provline" title="Meters replay open building data rescaled to DSU's buildings; they are not live DSU meters. Rupee and CO₂ figures are estimates."><span class="pill prov replay">Dataset replay</span><span>open data rescaled to DSU · ₹, CO₂ estimated</span><a href="#" id="provMore">How it works</a></p>
-  </section>
+<section class="kpis" aria-label="Campus right now">
+  <div class="kpi hero">
+    <div class="ring" id="ring" style="--p:0"><b id="kScore">--</b></div>
+    <div><span>Green score</span><b class="kv">Grade <em id="kGrade">–</em></b><small>out of 100</small></div>
+  </div>
+  <div class="kpi"><span>Power now</span><b class="kv"><i id="kPower">--</i><u>kW</u></b><small><i id="kEnergy">--</i> kWh today</small></div>
+  <div class="kpi"><span>Cost today</span><b class="kv">₹<i id="kCost">--</i></b><small><i id="kCo2">--</i> kg CO₂ · <i id="kWater">--</i> kL water</small></div>
+  <div class="kpi hot"><span>Open problems</span><b class="kv"><i id="kAlerts">--</i></b><small id="kWaste">nothing at risk</small></div>
+  <p class="provline" title="Meters replay open building data rescaled to DSU's buildings; they are not live DSU meters. Rupee and CO₂ figures are estimates."><span class="pill prov replay">Dataset replay</span><span>open data rescaled to DSU · ₹, CO₂ estimated</span><a href="#" id="provMore">How it works</a></p>
+</section>
 
-  <div class="pbody">
-  <nav class="tabs" id="tabs" aria-label="Panels">
-    <button data-tab="alerts" class="on"><svg><use href="#i-bell"/></svg><span>Alerts</span><em id="tabAlerts" hidden></em></button>
-    <button data-tab="building"><svg><use href="#i-bld"/></svg><span>Building</span></button>
-    <button data-tab="copilot"><svg><use href="#i-spark"/></svg><span>Copilot</span></button>
-    <button data-tab="whatif"><svg><use href="#i-sliders"/></svg><span>What-if</span></button>
-    <button data-tab="vision"><svg><use href="#i-cam"/></svg><span>Vision</span></button>
-    <button data-tab="students"><svg><use href="#i-users"/></svg><span>Students</span></button>
-    <button data-tab="report"><svg><use href="#i-doc"/></svg><span>Report</span></button>
-    <button data-tab="tour"><svg><use href="#i-360"/></svg><span>360° tour</span></button>
-  </nav>
+<aside class="panel float" id="panel">
+  <header class="phead"><h2 id="phTitle">Alerts</h2><p id="phSub">Every problem: detect, verify, assign, fix, prove</p></header>
   <div class="pcontent">
 
   <div class="tab on" id="tab-alerts">
@@ -229,27 +226,30 @@
     <a class="btnlink" href="https://www.dsu.edu.in/virtual-tour/" target="_blank" rel="noopener">Open the tour full screen</a>
   </div>
   </div>
-  </div>
 </aside>
 
 <div class="rightcol">
   <section class="layers float" aria-label="Map layers">
-    <h4><svg><use href="#i-layers"/></svg>Map</h4>
-    <div class="legend"><span><i class="sw ok"></i>Normal</span><span><i class="sw warn"></i>Attention</span><span><i class="sw crit"></i>Critical</span><span><i class="sw sel"></i>Selected</span></div>
-    <label class="tog"><input type="checkbox" id="showRoute"><span>Bin pickup route</span></label>
-    <label class="tog"><input type="checkbox" id="showHot"><span>Problem hotspots</span></label>
-    <label class="tog"><input type="checkbox" id="showSat"><span>Satellite photo</span></label>
     <div class="viewctl">
       <button class="soft" id="viewBtn" title="Switch between 3D and top-down"><svg><use href="#i-cube"/></svg><span>2D</span></button>
       <button class="soft" id="orbitBtn" title="Slowly orbit the campus"><svg><use href="#i-orbit"/></svg>Orbit</button>
       <button class="soft" id="homeBtn" title="Back to the whole campus"><svg><use href="#i-home"/></svg>Campus</button>
+      <button class="soft" id="walkBtn" title="DSU's campus-wide 360° tour with live twin data on top"><svg><use href="#i-walk"/></svg>360°</button>
     </div>
-    <button id="walkBtn" class="dark wide" title="DSU's campus-wide 360° tour with live twin data on top"><svg><use href="#i-walk"/></svg>Campus 360° tour</button>
+    <div class="legend" aria-label="Map colours"><span><i class="sw ok"></i>Normal</span><span><i class="sw warn"></i>Attention</span><span><i class="sw crit"></i>Critical</span><span><i class="sw sel"></i>Selected</span></div>
+    <label class="tog"><input type="checkbox" id="showRoute"><span>Bin pickup route</span></label>
+    <label class="tog"><input type="checkbox" id="showHot"><span>Problem hotspots</span></label>
+    <label class="tog"><input type="checkbox" id="showSat"><span>Satellite photo</span></label>
+  </section>
+  <section class="iso float" aria-label="Energy waste per day, last 5 weeks">
+    <h4>Energy waste <small>kWh above normal · 5 weeks</small></h4>
+    <div id="isoCal" class="isocal"></div>
+    <div class="iso-foot"><span id="isoTotal"></span><span class="iso-key">less <i></i><i></i><i></i><i></i> more</span></div>
   </section>
   <section class="board float" id="board" aria-label="Green score by building"></section>
 </div>
 
-<div class="demo float" aria-label="Demo scenarios">
+<div class="demo dock float" aria-label="Demo scenarios">
   <span>Simulate</span>
   <button data-scn="leak">Pipe leak</button>
   <button data-scn="ac_night">AC left on</button>
@@ -284,6 +284,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>

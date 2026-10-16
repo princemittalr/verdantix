@@ -948,7 +948,14 @@ class Twin:
                       "water_kl": round(float(win[(b, "water_l")].sum()) / 1000, 1),
                       "night_kwh": round(float(win[(b, "elec_kwh")][(win.index.hour >= 21) | (win.index.hour < 6)].sum()))}
         daily = win.xs("elec_kwh", axis=1, level=1).sum(axis=1).resample("D").sum()
+        # energy waste per day: metered kWh above the learned normal for that hour of the week, summed over buildings
+        how = win.index.dayofweek * 24 + win.index.hour
+        excess = pd.Series(0.0, index=win.index)
+        for b in self.bld_ids:
+            excess += (win[(b, "elec_kwh")].values - np.asarray(self.base[(b, "elec")].median)[how]).clip(min=0)
+        daily_excess = excess.resample("D").sum()
         return {"days": days, "buildings": out, "daily_kwh": [round(float(x)) for x in daily.values][-days:],
+                "daily_excess_kwh": [round(float(x)) for x in daily_excess.values][-days:], "end": sim.date().isoformat(),
                 "total_kwh": round(sum(v["kwh"] for v in out.values())),
                 "total_water_kl": round(sum(v["water_kl"] for v in out.values()), 1)}
 

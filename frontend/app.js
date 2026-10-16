@@ -6,9 +6,9 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const fmt = (n) => (n == null ? "--" : Number(n).toLocaleString("en-IN"));
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const COLORS = { ok: "#1fa971", warn: "#e8962b", crit: "#e5484d" };
+const COLORS = { ok: "#22a05a", warn: "#e8962b", crit: "#e5484d" };
 // Building "clay": healthy buildings stay porcelain; only problems and the selection get colour.
-const CLAY = { ok: "#f7f8fb", warn: "#f2b25a", crit: "#ec6b6f", sel: "#5672f5" };
+const CLAY = { ok: "#f8faf8", warn: "#f2b25a", crit: "#ec6b6f", sel: "#3fb56f" };
 const OFM = "https://tiles.openfreemap.org";
 // Light basemap built on OpenFreeMap vector tiles (free, no key). If tiles fail, the porcelain ground still renders.
 function baseStyle() {
@@ -20,7 +20,7 @@ function baseStyle() {
              tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] },
     },
     layers: [
-      { id: "ground", type: "background", paint: { "background-color": "#e9ebf1" } },
+      { id: "ground", type: "background", paint: { "background-color": "#e7eee8" } },
       { id: "sat", type: "raster", source: "sat", layout: { visibility: "none" }, paint: { "raster-saturation": -0.2, "raster-opacity": 0.95 } },
     ],
   };
@@ -184,10 +184,10 @@ function frameCampus() {
   const xs = pts.map((c) => c[0]), ys = pts.map((c) => c[1]);
   const W = innerWidth, H = innerHeight, mobile = W <= 1000;
   const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
-  const panel = r("#panel"), right = r(".rightcol .layers");
+  const panel = r("#panel"), right = r(".rightcol .layers"), kpis = r(".kpis");
   const padding = mobile
-    ? { top: 80, bottom: Math.round(H * 0.56) + 20, left: 30, right: 30 }
-    : { top: 110, bottom: 90, left: Math.round((panel?.right || 460) + 40), right: Math.round(W - (right?.left || W - 270) + 40) };
+    ? { top: 150, bottom: Math.round(H * 0.48) + 90, left: 30, right: 30 }
+    : { top: Math.round((kpis?.bottom || 160) + 30), bottom: 90, left: Math.round((panel?.right || 500) + 40), right: Math.round(W - (right?.left || W - 300) + 40) };
   const bb = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
   const cam = map.cameraForBounds(bb, { padding, bearing: -20 });
   const center = [(bb[0][0] + bb[1][0]) / 2, (bb[0][1] + bb[1][1]) / 2];
@@ -224,10 +224,10 @@ async function initMap() {
 
     map.addSource("mask", { type: "geojson", data: { type: "Feature", properties: {},
       geometry: { type: "Polygon", coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]], ring.slice().reverse()] } } });
-    map.addLayer({ id: "mask", type: "fill", source: "mask", paint: { "fill-color": "#e9ebf1", "fill-opacity": 0.72 } });
+    map.addLayer({ id: "mask", type: "fill", source: "mask", paint: { "fill-color": "#e7eee8", "fill-opacity": 0.74 } });
     map.addSource("boundary", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } } });
-    map.addLayer({ id: "boundary-glow", type: "line", source: "boundary", paint: { "line-color": "#3e5bf2", "line-width": 12, "line-opacity": 0.10, "line-blur": 8 } });
-    map.addLayer({ id: "boundary", type: "line", source: "boundary", paint: { "line-color": "#3e5bf2", "line-width": 1.4, "line-opacity": 0.6, "line-dasharray": [2, 2] } });
+    map.addLayer({ id: "boundary-glow", type: "line", source: "boundary", paint: { "line-color": "#1f8a52", "line-width": 12, "line-opacity": 0.12, "line-blur": 8 } });
+    map.addLayer({ id: "boundary", type: "line", source: "boundary", paint: { "line-color": "#1f8a52", "line-width": 1.6, "line-opacity": 0.65, "line-dasharray": [2, 2] } });
 
     map.addSource("campus", { type: "geojson", data: campus, promoteId: "id" });
     map.addLayer({ id: "sports", type: "fill", source: "campus", filter: ["==", ["get", "type"], "sports"],
@@ -240,7 +240,7 @@ async function initMap() {
     map.addLayer({ id: "bld", type: "fill-extrusion", source: "floors",
                    paint: {
                      "fill-extrusion-color": ["case", ["boolean", ["feature-state", "sel"], false],
-                       ["case", ["boolean", ["get", "roof"], false], "#7d93f8", CLAY.sel],
+                       ["case", ["boolean", ["get", "roof"], false], "#9be0b3", CLAY.sel],
                        ["boolean", ["get", "roof"], false], ["interpolate", ["linear"], 0.45, 0, statusColor, 1, "#ffffff"], statusColor],
                      "fill-extrusion-base": ["get", "base"],
                      "fill-extrusion-height": ["get", "top"],
@@ -267,7 +267,7 @@ async function initMap() {
                    paint: { "line-color": "#8a90a6", "line-width": 3, "line-opacity": 0.7, "line-dasharray": [0.6, 1.6] } });
     map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "route", type: "line", source: "route", layout: { visibility: "none" },
-                   paint: { "line-color": "#3e5bf2", "line-width": 4, "line-dasharray": [1.5, 1] } });
+                   paint: { "line-color": "#14824a", "line-width": 4.5, "line-dasharray": [1.5, 1] } });
     map.addSource("hot", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "hot", type: "circle", source: "hot", layout: { visibility: "none" },
                    paint: { "circle-radius": ["*", ["get", "weight"], 6], "circle-color": "#e5484d", "circle-opacity": 0.16,
@@ -450,7 +450,9 @@ function render(st) {
   $("#kAlerts").textContent = k.open_alerts;
   $("#tabAlerts").hidden = !k.open_alerts;
   $("#tabAlerts").textContent = k.open_alerts;
-  $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)}/day at risk` : "";
+  $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)} a day at risk` : "nothing at risk right now";
+  $("#kGrade").textContent = k.green_score >= 85 ? "A" : k.green_score >= 70 ? "B" : k.green_score >= 55 ? "C" : "D";
+  document.querySelector(".kpi.hot").classList.toggle("on", k.open_alerts > 0);
   const tb = st.tariff || {};
   $("#tariff").textContent = tb.band ? `${tb.band[0].toUpperCase() + tb.band.slice(1)} tariff ₹${tb.inr_per_kwh}/kWh` : "--";
   $("#tariff").className = `tariff ${tb.band || ""}`;
@@ -597,6 +599,34 @@ function renderAlerts(st) {
 }
 $("#alertFilters").addEventListener("change", (e) => { filt[e.target.name] = e.target.value; if (S) renderAlerts(S); });
 
+// 3D isometric calendar of daily energy waste (kWh above the model's normal), last 5 weeks.
+async function loadIso() {
+  let h;
+  try { h = await api("/api/history?days=35"); } catch { return; }
+  const vals = h.daily_excess_kwh || [];
+  if (!vals.length) return;
+  const max = Math.max(...vals, 1), min = Math.min(...vals), span = Math.max(max - min, 1), cell = 18, W = 252, H = 168, ox = 18, oy = 36;
+  const rel = (v) => (v - min) / span;   // relative to the 5-week range, so the worst days stand out
+  const iso = (c, r) => [ox + (c + r) * cell * 0.92, oy + (r - c) * cell * 0.53 + 60];
+  const shade = (v) => v <= 0 ? "#e3e9e4" : rel(v) < 0.25 ? "#c6ecbf" : rel(v) < 0.5 ? "#8fd97f" : rel(v) < 0.75 ? "#3fb56f" : "#14703f";
+  const first = new Date(h.end || Date.now()); first.setDate(first.getDate() - vals.length + 1);
+  let polys = "";
+  const cells = vals.map((v, i) => ({ v, c: Math.floor(i / 7), r: i % 7, i }));
+  cells.sort((a, b) => (a.r - a.c) - (b.r - b.c) || a.r - b.r);
+  for (const { v, c, r, i } of cells) {
+    const [x, y] = iso(c, r), hgt = v > 0 ? 4 + rel(v) * 46 : 2, w = cell * 0.92, d = cell * 0.53, col = shade(v);
+    const top = `${x},${y - hgt} ${x + w},${y - hgt - d} ${x + 2 * w},${y - hgt} ${x + w},${y - hgt + d}`;
+    const left = `${x},${y - hgt} ${x + w},${y - hgt + d} ${x + w},${y + d} ${x},${y}`;
+    const right = `${x + w},${y - hgt + d} ${x + 2 * w},${y - hgt} ${x + 2 * w},${y} ${x + w},${y + d}`;
+    const day = new Date(first); day.setDate(first.getDate() + i);
+    polys += `<g><title>${day.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}: ${fmt(Math.max(v, 0))} kWh above normal</title>
+      <polygon points="${left}" fill="${col}" style="filter:brightness(.82)"/><polygon points="${right}" fill="${col}" style="filter:brightness(.68)"/><polygon points="${top}" fill="${col}"/></g>`;
+  }
+  $("#isoCal").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily energy waste over 5 weeks">${polys}</svg>`;
+  const tot = vals.reduce((a, b) => a + Math.max(b, 0), 0), worst = Math.max(...vals);
+  $("#isoTotal").innerHTML = `<b>${fmt(Math.round(tot))} kWh</b> wasted · worst day ${fmt(Math.round(worst))}`;
+}
+
 // Eco advisor: today's priorities and segregation tips, from rules over the live twin.
 async function loadAdvisor() {
   let a;
@@ -635,7 +665,7 @@ async function selectBuilding(id) {
   const data = { labels: [...s.t, ...(s.t_fc || [])], datasets: [
     { label: "Actual", data: [...s.kwh, ...pad(fc.length)], borderColor: "#161a2c", backgroundColor: "rgba(22,26,44,.06)", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 },
     { label: "Normal", data: [...s.baseline, ...pad(fc.length)], borderColor: "#9aa0b4", borderDash: [4, 4], pointRadius: 0, tension: 0.35, borderWidth: 1.5 },
-    { label: "AI forecast", data: [...pad(s.kwh.length - 1), s.kwh[s.kwh.length - 1], ...fc], borderColor: "#3e5bf2", backgroundColor: "rgba(62,91,242,.08)", fill: true, borderDash: [5, 3], pointRadius: 0, tension: 0.35, borderWidth: 2 },
+    { label: "AI forecast", data: [...pad(s.kwh.length - 1), s.kwh[s.kwh.length - 1], ...fc], borderColor: "#1f9d55", backgroundColor: "rgba(31,157,85,.08)", fill: true, borderDash: [5, 3], pointRadius: 0, tension: 0.35, borderWidth: 2 },
   ] };
   if (bldChart) { bldChart.data = data; bldChart.update(); }
   else bldChart = new Chart($("#bldChart"), { type: "line", data, options: chartOpts("kWh per hour: last 24 h and next 24 h") });
@@ -692,7 +722,19 @@ function renderBuilding(st) {
 }
 
 // ---------------- tabs + controls ----------------
+const SECTION = {
+  alerts: ["Alerts", "Every problem: detect, verify, assign, fix, prove"],
+  building: ["Building", "Live meters, AI forecast, rooms, tanks, bins and sensors"],
+  copilot: ["Copilot", "Eco advisor and a GenAI assistant that answers from live data"],
+  whatif: ["What-if", "Before and after, payback, and the collection route simulator"],
+  vision: ["Waste vision", "Detect, classify and correct, or run a camera as CCTV"],
+  students: ["Students", "People are sensors too: reports, Green Points, badges"],
+  report: ["Weekly report", "The facilities report, impact ledger and PDF"],
+  tour: ["360° tour", "DSU's official virtual tour of the Harohalli campus"],
+};
 function switchTab(name) {
+  const [t, sub] = SECTION[name] || [name, ""];
+  $("#phTitle").textContent = t; $("#phSub").textContent = sub;
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   $$(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${name}`));
   if (name === "tour" && !$("#tourFrame").src) $("#tourFrame").src = "https://www.dsu.edu.in/virtual-tour/";
@@ -1095,7 +1137,7 @@ $("#genReport").onclick = safely(async () => {
   $("#pdfLink").hidden = false;
   $("#reportOut").innerHTML = md(r.narrative) + `<div class="sub">Written by ${r.provider} from twin data.</div>`;
   const h = await api("/api/history?days=7");
-  const data = { labels: h.daily_kwh.map((_, i) => `Day ${i + 1}`), datasets: [{ label: "Campus kWh per day", data: h.daily_kwh, backgroundColor: "#3e5bf2", borderRadius: 6 }] };
+  const data = { labels: h.daily_kwh.map((_, i) => `Day ${i + 1}`), datasets: [{ label: "Campus kWh per day", data: h.daily_kwh, backgroundColor: "#1f9d55", borderRadius: 6 }] };
   if (weekChart) { weekChart.data = data; weekChart.update(); } else weekChart = new Chart($("#weekChart"), { type: "bar", data, options: chartOpts("Campus kWh per day (dataset replay)") });
   loadLedger();
 });
@@ -1282,6 +1324,7 @@ async function boot() {
   drawQR($("#qrSmall"), 96);
   setInterval(() => { if ($("#tab-students").classList.contains("on")) loadReports().catch(() => {}); }, 8000);
   loadHotspots(); setInterval(() => { if ($("#tab-alerts").classList.contains("on")) loadHotspots(); }, 30000);
+  loadIso(); setInterval(loadIso, 120000);
   setInterval(() => { if ($("#tab-copilot").classList.contains("on")) loadAdvisor(); }, 20000);
   connect();
 }
