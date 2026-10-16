@@ -22,26 +22,50 @@ def _eq(a: str, b: str) -> bool:
     return bool(a) and bool(b) and hmac.compare_digest(a.encode(), b.encode())
 
 
+def auth_misconfigured() -> bool:
+    """Production with no operator token: privileged actions are refused (fail closed)."""
+    return C.PRODUCTION and not C.OPERATOR_TOKEN
+
+
 def is_operator(token: str) -> bool:
-    return not C.OPERATOR_TOKEN or _eq(token, C.OPERATOR_TOKEN)
+    if not C.OPERATOR_TOKEN:
+        return not C.PRODUCTION   # open only in local development
+    return _eq(token, C.OPERATOR_TOKEN)
 
 
 def require_operator(x_operator: str = Header("")):
+    if auth_misconfigured():
+        raise HTTPException(503, "Operator actions are disabled: OPERATOR_TOKEN is not configured on this server.")
     if not is_operator(x_operator):
         raise HTTPException(401, "Operator sign-in needed for this action.")
-    return "operator" if C.OPERATOR_TOKEN else "operator (auth off)"
+    return "operator" if C.OPERATOR_TOKEN else "operator (auth off, local dev)"
 
 
 def require_sensor(x_token: str = Header(""), x_operator: str = Header("")):
     sensor_key = C.INGEST_TOKEN or C.OPERATOR_TOKEN
-    if sensor_key and not (_eq(x_token, sensor_key) or _eq(x_operator, C.OPERATOR_TOKEN)):
+    if not sensor_key:
+        if C.PRODUCTION:
+            raise HTTPException(503, "Sensor ingestion is disabled: INGEST_TOKEN is not configured on this server.")
+        return "sensor (auth off, local dev)"
+    if not (_eq(x_token, sensor_key) or _eq(x_operator, C.OPERATOR_TOKEN)):
         raise HTTPException(401, "Missing or wrong X-Token header.")
     return "sensor"
 
 
 def client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    return (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown"))[:64]
+    """Client address for rate limiting, from headers the client can't forge where possible (see config)."""
+    h = request.headers
+    direct = request.client.host if request.client else "unknown"
+    if C.TRUST_EDGE_HEADERS:
+        edge = h.get("cf-connecting-ip") or h.get("true-client-ip")
+        if edge:
+            return edge.strip()[:64]
+    parts = [p.strip() for p in h.get("x-forwarded-for", "").split(",") if p.strip()]
+    if C.TRUSTED_PROXY_HOPS > 0 and len(parts) >= C.TRUSTED_PROXY_HOPS:
+        return parts[-C.TRUSTED_PROXY_HOPS][:64]
+    if C.TRUST_EDGE_HEADERS and parts:
+        return parts[0][:64]   # Render puts the real client first; spoofable only when the edge headers are missing
+    return direct[:64]
 
 
 class RateLimiter:

@@ -83,6 +83,10 @@ ORDER_FLOW = {
     "cancelled": set(),
 }
 CLOSED = ("resolved", "self-cleared", "dismissed", "rejected")
+def by_human_or_ai(proof):
+    return "operator" if proof.get("by") == "operator" else "AI"
+
+
 FEEDBACK = {"correct", "false_positive", "wrong_category", "duplicate", "insufficient_evidence", "uncertain"}
 
 
@@ -866,7 +870,8 @@ class Twin:
                          "est_avoided_inr_per_year": round(a.inr_per_day * 365),
                          "est_avoided_co2_t_per_year": round(a.co2_kg_per_day * 365 / 1000, 2),
                          "measured_savings": None, "method": "estimated: detected loss rate x 365 days, assumes the fix holds",
-                         "verification": (o.proof or {}).get("issue_score")})
+                         "verification": (o.proof or {}).get("verification", "AI photo check (not a physical inspection)"),
+                         "verification_score": (o.proof or {}).get("issue_score")})
         return sorted(rows, key=lambda r: r["fixed"] or "", reverse=True)
 
     def complete_order(self, order_id, proof):
@@ -876,9 +881,10 @@ class Twin:
             a = self.alerts[o.alert_id]
             o.status, o.proof = "done", proof
             a.status = "resolved"
-            self.log(o, "verified", "AI", f"after-fix photo passed (model score {proof.get('issue_score')})")
-            self.log(o, "done", "AI", "closed after verification")
-            self.log(a, "resolved", "AI", f"{o.id} fix verified from photo")
+            proof["verification"] = "AI photo check (not a physical inspection)"
+            self.log(o, "AI photo check passed", "AI", f"issue no longer visible (model score {proof.get('issue_score')}); not a physical inspection")
+            self.log(o, "done", by_human_or_ai(proof), "closed after the after-fix photo passed the AI check")
+            self.log(a, "resolved", "AI", f"{o.id}: after-fix photo passed the AI check")
             sim = self.clock.now()
             if a.kind == "waste":
                 self.bin_collected[a.asset] = sim

@@ -111,6 +111,9 @@ Sign in with **Operator sign-in** (the demo passcode is given to judges with the
 
 ## Security, records and trust
 
+- **Fails closed in production.** On Render (or with `VERDANTIX_ENV=production`) a missing `OPERATOR_TOKEN` disables every privileged action (503) and a missing sensor token disables ingestion; the public dashboard still works. `/api/about` reports `security.misconfigured`.
+- **Rate limits can't be dodged with a forged X-Forwarded-For**: behind Render's Cloudflare edge the client IP comes from `CF-Connecting-IP`.
+
 | Area | What's in place |
 |---|---|
 | **Access** | Public: view the twin, report problems, copilot, what-if. **Operator** (passcode `OPERATOR_TOKEN`, sent as `X-Operator`): clock and demo controls, assign / dismiss / label / reopen incidents, work orders, CCTV from the dashboard. **Sensors** (`INGEST_TOKEN` as `X-Token`): `/api/ingest`, `/api/cctv`. The copilot can only create work orders for signed-in operators. No secrets live in frontend code. |
@@ -145,7 +148,10 @@ Covers: anonymous users can't run operator actions; sensor auth and range checks
 - **Vision is not validated on DSU footage.** Bin YOLO and occupancy numbers are on held-out public data; CLIP and the cloud vision path have no DSU evaluation set yet. Operator labels (correct / false alarm) are collected so precision can be measured in use.
 - **Leak detection** uses one inlet signal (7 of 14 bursts caught in 3 days, about 54% of flagged nights real); the best published methods use all 33 pressure sensors.
 - **Savings are potential, not measured.** Measured savings need before/after meter readings at DSU.
-- **Persistence on Render's free tier:** the SQLite file survives restarts of the process but not a redeploy or instance replacement (the free disk is not persistent). Use a persistent disk or the VM setup (`scripts/setup_vm.sh`) for durable records.
+- **Persistence on Render's free tier:** the SQLite file survives restarts of the process but not a redeploy or instance replacement (the free disk is not persistent). Before a redeploy, an operator can download every record from `GET /api/backup` (operator only). For durable records use a Render persistent disk (paid) mounted at `VERDANTIX_DB`, the VM setup (`scripts/setup_vm.sh`), or a hosted Postgres.
+- **AI photo checks are not inspections.** A work order closes when the after-fix photo passes the AI check; the timeline and impact ledger say "AI photo check (not a physical inspection)". Hazardous waste (syringes, carcasses) is raised as critical but marked "confirm on site": the AI label is a suspicion, never a verdict.
+- **Penalties are human-reviewed.** The only automatic deduction is -3 for re-sending a photo whose perceptual hash matches an earlier report; the -5 for a false report applies only after facilities reject it.
+- **Route simulator** uses nearest neighbour + 2-opt: a good heuristic, not a proven optimum. Costs are assumed constants (config.ROUTE), identical for both routes.
 - **Accounts:** one shared operator passcode and one sensor token, not individual user accounts.
 - Demo scenarios (leak, AC left on, bin overflow, tank overflow) are injections, labelled "Simulated demo", and closed on restart.
 - The name Verdantix is also used by an existing research firm; check before any commercial use.

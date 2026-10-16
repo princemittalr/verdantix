@@ -546,7 +546,7 @@ const teamFor = (a) => a.evidence?.waste_type?.team || TEAMS[a.kind] || "Facilit
 function wtPill(a) {
   const w = a.evidence?.waste_type;
   if (!w) return "";
-  return `<div class="m"><span class="pill wt ${w.hazardous ? "haz" : ""}">${w.hazardous ? "⚠ " : ""}${esc(w.name)}</span><span>send ${esc(w.team)}, within ${w.deadline_h} h</span></div>`;
+  return `<div class="m"><span class="pill wt ${w.hazardous ? "haz" : ""}">${w.hazardous ? "⚠ " : ""}${esc(w.name)}</span><span>send ${esc(w.team)}, within ${w.deadline_h} h</span>${a.evidence?.needs_human_check ? '<b class="late">confirm on site: AI suspicion</b>' : ""}</div>`;
 }
 function alertCard(a) {
   const o = a.work_order ? S.orders.find((x) => x.id === a.work_order) : null;
@@ -1124,10 +1124,10 @@ async function loadLedger() {
   try {
     const l = await api("/api/ledger");
     $("#ledger").innerHTML = `<h3>Impact ledger <small>fixed incidents</small></h3>
-      <p class="sub">${esc(l.note)}</p>` + (l.rows.length ? `<table class="payback"><tr><th>Incident</th><th>Fixed in</th><th>Loss rate</th><th>Est. avoided / yr</th><th>Measured</th></tr>
+      <p class="sub">${esc(l.note)}</p>` + (l.rows.length ? `<table class="payback"><tr><th>Incident</th><th>Fixed in</th><th>Loss rate</th><th>Est. avoided / yr</th><th>Evidence</th></tr>
       ${l.rows.map((x) => `<tr><td><a href="#" data-alertlink="${x.incident}">${x.incident}</a> ${esc(x.title)}</td><td>${x.hours_to_fix ?? "–"} h</td><td>₹${fmt(x.loss_rate_inr_per_day)}/day</td>
-        <td>₹${fmt(x.est_avoided_inr_per_year)}, ${x.est_avoided_co2_t_per_year} t CO₂</td><td>needs meter data</td></tr>`).join("")}</table>`
-      : `<div class="sub">No fixes verified yet. When a work order closes with a verified after-fix photo, it appears here.</div>`);
+        <td>₹${fmt(x.est_avoided_inr_per_year)}, ${x.est_avoided_co2_t_per_year} t CO₂</td><td>AI photo check; savings need meter data</td></tr>`).join("")}</table>`
+      : `<div class="sub">No fixes closed yet. When a work order's after-fix photo passes the AI check, it appears here (an AI photo check, not a physical inspection).</div>`);
   } catch { /* offline */ }
 }
 $("#genReport").onclick = safely(async () => {

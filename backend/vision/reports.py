@@ -148,8 +148,11 @@ class ReportDesk:
                                      "student" if verified else "student-unverified",
                                      IMPACT_INR[kind] if verified else IMPACT_INR[kind] // 2, 2.0, evidence, sim)
             alert.lng, alert.lat = lng, lat
-            if kind == "waste" and waste_type and waste_type.get("hazardous") and verified:
-                alert.severity = "crit"   # syringes or a carcass jump the queue
+            if kind == "waste" and waste_type and waste_type.get("hazardous"):
+                # syringes or a carcass jump the queue, but the AI label is only a suspicion: a person must confirm it
+                alert.severity = "crit"
+                alert.evidence["needs_human_check"] = True
+                alert.detail = f"Possible {waste_type['name'].lower()} (AI suggestion, confirm on site before handling). " + alert.detail
         rep = {"id": f"R{len(self.reports) + 1:03d}", "alert": alert.id, "kind": kind, "zone": zone, "lng": lng, "lat": lat,
                "note": note, "image": image_url, "status": "open", "confirmations": 0, "clip": clip, "verified": verified,
                "reporter": reporter or "anonymous", "gps_accuracy_m": round(accuracy_m) if accuracy_m else None,

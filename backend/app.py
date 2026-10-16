@@ -344,6 +344,17 @@ def ledger():
                     "Measured savings need before/after meter data."}
 
 
+@app.get("/api/backup")
+def backup(request: Request, who=Depends(require_operator)):
+    """Operator-only JSON export of every record (alerts, orders, reports, points). Render's free disk is not durable,
+    so download this before a redeploy; README explains how to restore it."""
+    S.flush(db, twin, desk)
+    audit("backup downloaded", "", request, who)
+    data = S.snapshot(twin, desk)
+    return Response(json.dumps(data, default=str), media_type="application/json",
+                    headers={"Content-Disposition": "attachment; filename=verdantix-backup.json"})
+
+
 @app.get("/api/audit")
 def audit_log(limit_: int = 100, target: str | None = None, who=Depends(require_operator)):
     return db.audit_list(max(1, min(limit_, 500)), target)
@@ -420,8 +431,8 @@ def advisor():
     for a in alerts:
         wt = a.evidence.get("waste_type")
         if wt and wt.get("hazardous"):
-            pri.append({"level": "crit", "text": f"Send {wt['team']} to {a.title.split(' near ')[-1]} now: {wt['name'].lower()} ({a.id}).",
-                        "why": f"Hazardous waste, {wt['deadline_h']} h deadline.", "alert": a.id})
+            pri.append({"level": "crit", "text": f"Send {wt['team']} to {a.title.split(' near ')[-1]} now: possible {wt['name'].lower()} ({a.id}).",
+                        "why": f"Safety first: the AI label is a suspicion, so confirm on site before handling. {wt['deadline_h']} h deadline.", "alert": a.id})
     for o in orders:
         if o.overdue and o.status not in ("done", "cancelled"):
             pri.append({"level": "crit", "text": f"{o.id} for {o.team} is overdue: {o.title}.", "why": "Escalated to the supervisor.", "alert": o.alert_id})
@@ -551,8 +562,9 @@ async def cctv_frame(cam: str, request: Request, file: UploadFile = File(...), w
                                  "threshold": C.CCTV_RAISE, "camera": cam, "frames": C.CCTV_MIN_FRAMES,
                                  "model": vision.health["mode"], **({"waste_type": wt} if wt else {})}, twin.clock.now())
                 a.lng, a.lat = lng, lat
-                if wt and wt.get("hazardous"):
+                if wt and wt.get("hazardous"):   # safety incident: AI suspicion, a person confirms on site
                     a.severity = "crit"
+                    a.evidence["needs_human_check"] = True
                 action, incident = f"alert {a.id}", a.id
             twin._snap = None
     elif score < C.CCTV_CLEAR:
@@ -726,6 +738,8 @@ def about():
     return {"metrics": twin.metrics, "mapping": mapping, "models": vision.status, "vision_health": vision.health,
             "feedback": twin.feedback_metrics(), "seeded_events": seeded, "restored": restored, "started": STARTED,
             "security": {"operator_auth": bool(C.OPERATOR_TOKEN), "sensor_auth": bool(C.INGEST_TOKEN or C.OPERATOR_TOKEN),
+                         "production": C.PRODUCTION, "fails_closed": C.PRODUCTION,
+                         "misconfigured": C.PRODUCTION and not C.OPERATOR_TOKEN, "client_ip_from": "Cloudflare edge header" if C.TRUST_EDGE_HEADERS else "socket address",
                          "allowed_origins": C.ALLOWED_ORIGINS, "max_upload_mb": C.MAX_UPLOAD_MB},
             "data_sources": {"building energy & water": "dataset replay (BDG2 2017, rescaled to Indian benchmarks)",
                              "rooms": "dataset replay (CU-BEMS 2019)", "water network": "dataset replay (BattLeDIM 2018)",

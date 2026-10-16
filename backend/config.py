@@ -94,6 +94,14 @@ VISION_MODEL = os.getenv("VISION_MODEL", GEMINI_MODEL)
 # Access control (see backend/security.py). Set both on any public deployment.
 OPERATOR_TOKEN = os.getenv("OPERATOR_TOKEN", "")   # facilities staff passcode (X-Operator header)
 INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")       # sensors / CCTV agents (X-Token header); falls back to OPERATOR_TOKEN
+# Production fails closed: on Render (RENDER is set by the platform) or with VERDANTIX_ENV=production, a missing
+# OPERATOR_TOKEN disables privileged actions instead of opening them to everyone. Local development stays open.
+PRODUCTION = os.getenv("VERDANTIX_ENV", "").lower() == "production" or bool(os.getenv("RENDER"))
+# Client IP for rate limits. Behind Render's Cloudflare edge, CF-Connecting-IP / True-Client-IP are set by Cloudflare and
+# can't be forged by the client, so they win. Render only appends to X-Forwarded-For (a client can prepend fake entries),
+# so XFF is a fallback. TRUSTED_PROXY_HOPS > 0 instead takes the Nth entry from the right (for a known proxy chain).
+TRUST_EDGE_HEADERS = os.getenv("TRUST_EDGE_HEADERS", "1" if PRODUCTION else "0") == "1"
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
     "ALLOWED_ORIGINS", "https://verdantix-frontend.vercel.app,http://localhost:8000,http://127.0.0.1:8000").split(",") if o.strip()]
 MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "8"))

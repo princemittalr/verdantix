@@ -317,3 +317,63 @@ class MvpFeatures(Base):
         self.assertIn("priorities", a)
         self.assertTrue(a["segregation"])
         self.assertIn("SWM Rules 2016", a["method"])
+
+
+class ProductionHardening(unittest.TestCase):
+    """Fail closed in production, trusted-proxy client IPs, operator-only backup, AI check wording, hazardous flag."""
+
+    def test_production_without_token_fails_closed(self):
+        os.environ.update(VERDANTIX_ENV="production", OPERATOR_TOKEN="", INGEST_TOKEN="")
+        try:
+            A = load_app()
+            c = TestClient(A.app)
+            self.assertEqual(c.get("/api/state").status_code, 200)                      # public view still works
+            self.assertEqual(c.post("/api/scenario/leak").status_code, 503)             # privileged: refused
+            self.assertEqual(c.post("/api/ingest", json=[]).status_code, 503)           # sensors: refused
+            self.assertFalse(c.get("/api/whoami").json()["operator"])
+            self.assertTrue(c.get("/api/about").json()["security"]["misconfigured"])
+        finally:
+            os.environ.update(VERDANTIX_ENV="", OPERATOR_TOKEN="test-op", INGEST_TOKEN="test-sensor")
+
+    def test_forwarded_for_cannot_be_spoofed(self):
+        os.environ.update(TRUST_EDGE_HEADERS="1")
+        try:
+            import config
+            importlib.reload(config)
+            import security
+            importlib.reload(security)
+
+            class Req:
+                def __init__(self, h):
+                    self.headers = h
+                    self.client = type("c", (), {"host": "10.0.0.1"})()
+            # a forged X-Forwarded-For loses to the edge header Cloudflare sets
+            self.assertEqual(security.client_ip(Req({"x-forwarded-for": "6.6.6.6", "cf-connecting-ip": "9.9.9.9"})), "9.9.9.9")
+            self.assertEqual(security.client_ip(Req({})), "10.0.0.1")
+            os.environ.update(TRUST_EDGE_HEADERS="0")
+            importlib.reload(config)
+            self.assertEqual(security.client_ip(Req({"x-forwarded-for": "6.6.6.6"})), "10.0.0.1")   # local: headers ignored
+        finally:
+            os.environ.pop("TRUST_EDGE_HEADERS", None)
+            import config
+            importlib.reload(config)
+
+
+class Operations(Base):
+    def test_backup_is_operator_only(self):
+        self.assertEqual(self.c.get("/api/backup").status_code, 401)
+        r = self.c.get("/api/backup", headers=OP)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("alerts", r.json())
+
+    def test_hazardous_waste_needs_human_check(self):
+        from vision import waste_types as WT
+        self.A.vision.analyze = lambda img: ({"people": 0, "objects": [], "bin": None, "size": img.size, "waste_type": WT.info("medical", 0.9),
+                                              "clip": {"issue": "waste", "issue_score": 0.9, "scores": {"waste": 0.9, "water": 0, "energy": 0, "clean": 0.1},
+                                                       "top": [{"label": "syringes", "p": 0.9}]}}, None)
+        lng, lat = next(iter(self.A.twin.campus.buildings.values()))["center"]
+        r = self.c.post("/api/reports", data={"lat": lat, "lng": lng, "category": "waste"},
+                        files={"file": ("r.jpg", jpeg(950), "image/jpeg")}).json()
+        a = self.A.twin.alerts[r["alert"]]
+        self.assertTrue(a.evidence["needs_human_check"])
+        self.assertIn("confirm on site", a.detail)
