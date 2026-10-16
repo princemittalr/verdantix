@@ -129,6 +129,26 @@ function beaconShape(lng, lat, r = 9, n = 20) {
 }
 let orbiting = false, is3D = true, campusView = null;
 
+// Fit the buildings (not the empty fields around them) into the part of the map the panels don't cover.
+function frameCampus() {
+  const pts = [];
+  campus.features.filter((f) => f.properties.type !== "sports")
+    .forEach((f) => (f.geometry.type === "Point" ? [f.geometry.coordinates] : f.geometry.coordinates[0]).forEach((c) => pts.push(c)));
+  const xs = pts.map((c) => c[0]), ys = pts.map((c) => c[1]);
+  const W = innerWidth, H = innerHeight, mobile = W <= 1000;
+  const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
+  const panel = r("#panel"), right = r(".rightcol .layers");
+  const padding = mobile
+    ? { top: 80, bottom: Math.round(H * 0.56) + 20, left: 30, right: 30 }
+    : { top: 110, bottom: 90, left: Math.round((panel?.right || 460) + 40), right: Math.round(W - (right?.left || W - 270) + 40) };
+  const bb = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
+  const cam = map.cameraForBounds(bb, { padding, bearing: -20 });
+  const center = [(bb[0][0] + bb[1][0]) / 2, (bb[0][1] + bb[1][1]) / 2];
+  // The camera's padding keeps the campus centred in the uncovered part of the map, also when tilted and for later fly-tos.
+  // A pitched camera shows the near side larger, so the fitted zoom can go a little tighter.
+  return { center, zoom: cam ? Math.min(cam.zoom + 0.35, 18.2) : 16.4, pitch: 58, bearing: -20, padding };
+}
+
 async function initMap() {
   campus = campus || await api("/api/campus");
   const center = [77.4500, 12.6605];
@@ -147,10 +167,11 @@ async function initMap() {
     const bounds = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
     const padLng = (bounds[1][0] - bounds[0][0]) * 0.9, padLat = (bounds[1][1] - bounds[0][1]) * 0.9;
     map.setMaxBounds([[bounds[0][0] - padLng, bounds[0][1] - padLat], [bounds[1][0] + padLng, bounds[1][1] + padLat]]);
-    map.fitBounds(bounds, { padding: { top: 90, bottom: 70, left: 430, right: 280 }, pitch: 0, bearing: -20, duration: 0 });
-    map.setMinZoom(Math.max(map.getZoom() - 0.8, 14));
-    map.jumpTo({ pitch: 58 });
-    campusView = { center: map.getCenter(), zoom: map.getZoom(), pitch: 58, bearing: -20 };
+    campusView = frameCampus();
+    map.jumpTo(campusView);
+    map.setMinZoom(Math.max(campusView.zoom - 1.2, 14));
+    let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { campusView = frameCampus(); map.setPadding(campusView.padding); }, 250); });
+    map.on("move", () => { if (!declutter.raf) declutter.raf = requestAnimationFrame(declutter); });
     map.setLight({ anchor: "map", position: [1.4, 215, 35], intensity: 0.32, color: "#ffffff" });
 
     map.addSource("mask", { type: "geojson", data: { type: "Feature", properties: {},
@@ -191,8 +212,8 @@ async function initMap() {
     map.addSource("pts", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "pts", type: "circle", source: "pts",
                    paint: { "circle-radius": ["match", ["get", "type"], "bin", 7, 5],
-                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#161a2c", "water_meter", "#3e6fe0", "#9aa0b4"],
-                            "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+                            "circle-color": ["match", ["get", "type"], "bin", ["get", "color"], "water_tank", ["coalesce", ["get", "color"], "#5fa8ff"], "camera", "#ffffff", "water_meter", "#3e6fe0", "#9aa0b4"],
+                            "circle-stroke-color": ["match", ["get", "type"], "camera", "#3a3f57", "#ffffff"], "circle-stroke-width": ["match", ["get", "type"], "camera", 2.5, 2] } });
     map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({ id: "route", type: "line", source: "route", layout: { visibility: "none" },
                    paint: { "line-color": "#3e5bf2", "line-width": 4, "line-dasharray": [1.5, 1] } });
@@ -306,6 +327,24 @@ function updateBadges(st) {
     el.classList.toggle("sel", id === selected);
     el.querySelector("b").textContent = b.score;
   }
+  declutter();
+}
+// Badges that would overlap on screen shrink to a dot; problems and the selected building win the space.
+function declutter() {
+  declutter.raf = 0;
+  if (!map || !S) return;
+  const items = Object.entries(bmarks).map(([id, o]) => {
+    const b = S.buildings[id] || {};
+    const pri = (id === selected ? 1e4 : 0) + (b.status === "crit" ? 5e3 : b.status === "warn" ? 2e3 : 0) + (100 - (b.score ?? 100)) * 10 + (b.baseline_kw || 0) / 100;
+    return { o, p: map.project(o.m.getLngLat()), pri };
+  }).sort((a, b) => b.pri - a.pri);
+  const placed = [];
+  for (const it of items) {
+    const hit = placed.some((q) => Math.abs(q.x - it.p.x) < 38 && Math.abs(q.y - it.p.y) < 36);
+    it.o.el.classList.toggle("tuck", hit);
+    if (!hit) placed.push(it.p);
+    if (!hit && it.o.el.classList.contains("sel")) placed.push({ x: it.p.x, y: it.p.y - 30 }, { x: it.p.x - 30, y: it.p.y - 30 }, { x: it.p.x + 30, y: it.p.y - 30 });  // its name label
+  }
 }
 
 function updateMap(st) {
@@ -358,6 +397,8 @@ function render(st) {
   $("#kCo2").textContent = fmt(k.co2_today_kg);
   $("#kWater").textContent = fmt(k.water_today_kl);
   $("#kAlerts").textContent = k.open_alerts;
+  $("#tabAlerts").hidden = !k.open_alerts;
+  $("#tabAlerts").textContent = k.open_alerts;
   $("#kWaste").textContent = k.waste_inr_per_day ? `₹${fmt(k.waste_inr_per_day)}/day at risk` : "";
   const tb = st.tariff || {};
   $("#tariff").textContent = tb.band ? `${tb.band[0].toUpperCase() + tb.band.slice(1)} tariff ₹${tb.inr_per_kwh}/kWh` : "--";
@@ -570,7 +611,7 @@ function switchTab(name) {
   $$(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${name}`));
   if (name === "tour" && !$("#tourFrame").src) $("#tourFrame").src = "https://www.dsu.edu.in/virtual-tour/";
 }
-$("#tabs").addEventListener("click", (e) => e.target.dataset.tab && switchTab(e.target.dataset.tab));
+$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) switchTab(b.dataset.tab); });
 $("#speedSeg").addEventListener("click", async (e) => {
   if (!e.target.dataset.speed) return;
   $$("#speedSeg button").forEach((b) => b.classList.toggle("on", b === e.target));

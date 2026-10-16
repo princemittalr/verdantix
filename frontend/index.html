@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=30">
+<link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -29,6 +29,14 @@
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5zM3 14l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-bld" viewBox="0 0 24 24"><path d="M4 20V6l7-3v17M11 9h9v11M7 8v.01M7 11.5v.01M7 15v.01M14.5 12.5h2M14.5 16h2M2.5 20h19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M5 4v6M5 14v6M12 4v3M12 11v9M19 4v9M19 17v3M3 12h4M10 9h4M17 15h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 20a6 6 0 0 1 12 0M16 4.8a3.2 3.2 0 0 1 0 6.4M18 14.5a6 6 0 0 1 3 5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-360" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3a4.5 9 0 0 1 0 18M12 3a4.5 9 0 0 0 0 18" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/></symbol>
 </svg>
 
 <div id="map" aria-label="3D map of the DSU Harohalli campus"></div>
@@ -70,19 +78,21 @@
       <div><span>Water today</span><b><i id="kWater">--</i> kL</b></div>
       <div class="hot"><span>Open alerts</span><b><i id="kAlerts">--</i></b><em id="kWaste"></em></div>
     </div>
-    <p class="provline">Meters: dataset replay of open data rescaled to DSU, not live DSU meters. ₹ and CO₂ are estimates. <a href="#" id="provMore">How it works</a></p>
+    <p class="provline" title="Meters replay open building data rescaled to DSU's buildings; they are not live DSU meters. Rupee and CO₂ figures are estimates."><span class="pill prov replay">Dataset replay</span><span>open data rescaled to DSU · ₹, CO₂ estimated</span><a href="#" id="provMore">How it works</a></p>
   </section>
 
+  <div class="pbody">
   <nav class="tabs" id="tabs" aria-label="Panels">
-    <button data-tab="alerts" class="on">Alerts</button>
-    <button data-tab="building">Building</button>
-    <button data-tab="copilot">Copilot</button>
-    <button data-tab="whatif">What-if</button>
-    <button data-tab="vision">Vision</button>
-    <button data-tab="students">Students</button>
-    <button data-tab="report">Report</button>
-    <button data-tab="tour">360° tour</button>
+    <button data-tab="alerts" class="on"><svg><use href="#i-bell"/></svg><span>Alerts</span><em id="tabAlerts" hidden></em></button>
+    <button data-tab="building"><svg><use href="#i-bld"/></svg><span>Building</span></button>
+    <button data-tab="copilot"><svg><use href="#i-spark"/></svg><span>Copilot</span></button>
+    <button data-tab="whatif"><svg><use href="#i-sliders"/></svg><span>What-if</span></button>
+    <button data-tab="vision"><svg><use href="#i-cam"/></svg><span>Vision</span></button>
+    <button data-tab="students"><svg><use href="#i-users"/></svg><span>Students</span></button>
+    <button data-tab="report"><svg><use href="#i-doc"/></svg><span>Report</span></button>
+    <button data-tab="tour"><svg><use href="#i-360"/></svg><span>360° tour</span></button>
   </nav>
+  <div class="pcontent">
 
   <div class="tab on" id="tab-alerts">
     <ol class="loop" aria-label="How every problem is handled"><li>Detect</li><li>Verify</li><li>Assign</li><li>Fix</li><li>Prove</li></ol>
@@ -191,6 +201,8 @@
     <div class="tourframe"><iframe id="tourFrame" title="DSU 360 degree virtual tour" allowfullscreen loading="lazy"></iframe></div>
     <a class="btnlink" href="https://www.dsu.edu.in/virtual-tour/" target="_blank" rel="noopener">Open the tour full screen</a>
   </div>
+  </div>
+  </div>
 </aside>
 
 <div class="rightcol">
@@ -245,6 +257,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 </body>
 </html>
