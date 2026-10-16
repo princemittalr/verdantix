@@ -1,0 +1,17 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install (lite backend, no PyTorch)
+        run: pip install -r requirements-lite.txt
+      - name: Lint for errors
+        run: pip install pyflakes && python -m pyflakes backend tests scripts/fake_sensor.py || true
+      - name: Dependency audit
+        run: pip install pip-audit && pip-audit -r requirements-lite.txt || true
+      - name: API tests (security, persistence, lifecycles, CCTV, uploads)
+        run: python -m unittest discover -s tests -v

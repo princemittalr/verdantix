@@ -3,7 +3,7 @@
     venv\\Scripts\\python.exe scripts\\cctv_agent.py cam-foodcourt 0                      # laptop webcam
     venv\\Scripts\\python.exe scripts\\cctv_agent.py cam-foodcourt demo.mp4               # a recorded video
     venv\\Scripts\\python.exe scripts\\cctv_agent.py cam-soe-a-entrance rtsp://user:pass@192.168.1.20:554/stream1
-    ... add  --server https://verdantix-api.onrender.com  to send to the cloud twin (default: http://localhost:8000)
+    ... add  --server https://verdantix-api.onrender.com --token <INGEST_TOKEN>  for the cloud twin (default: http://localhost:8000)
 
 Every few seconds it grabs a frame, shrinks it and sends it to POST /api/cctv/<camera>.
 The server runs the vision models; when it sees garbage, a leak or lights on in an empty room it
@@ -20,12 +20,12 @@ import uuid
 import cv2
 
 
-def post_frame(server, cam, jpeg):
+def post_frame(server, cam, jpeg, token=""):
     boundary = uuid.uuid4().hex
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"frame.jpg\"\r\n"
             f"Content-Type: image/jpeg\r\n\r\n").encode() + jpeg + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(f"{server}/api/cctv/{cam}", data=body, method="POST",
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-Token": token})
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read())
 
@@ -36,6 +36,7 @@ def main():
     ap.add_argument("source", help="0 for webcam, a video file, or an rtsp:// / http:// stream URL")
     ap.add_argument("--server", default="http://localhost:8000")
     ap.add_argument("--every", type=float, default=5.0, help="seconds between analysed frames (default 5)")
+    ap.add_argument("--token", default="", help="sensor token (INGEST_TOKEN or OPERATOR_TOKEN on the server)")
     a = ap.parse_args()
     server = a.server.rstrip("/")
     src = int(a.source) if a.source.isdigit() else a.source
@@ -63,8 +64,8 @@ def main():
             frame = cv2.resize(frame, (int(w * k), int(h * k)))
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         try:
-            r = post_frame(server, a.camera, buf.tobytes())
-            seen = f"{r['issue']} {round(r['score'] * 100)}%" if r["score"] >= 0.6 else "clear"
+            r = post_frame(server, a.camera, buf.tobytes(), a.token)
+            seen = f"{r['issue']} score {r['score']:.2f}" if r["score"] >= r.get("threshold", 0.6) else "clear"
             print(f"{time.strftime('%H:%M:%S')}  {seen:<16} people={r['people']:<3} {'' if r['action'] == 'none' else '-> ' + r['action']}")
         except Exception as e:
             print("send failed:", e)

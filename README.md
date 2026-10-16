@@ -66,17 +66,11 @@ venv\Scripts\python.exe -m uvicorn app:app --app-dir backend --port 8000
 ```
 Open http://localhost:8000.
 
-## Deploy (free Hugging Face Space)
-
-```bash
-venv\Scripts\python.exe -m pip install -U huggingface_hub
-venv\Scripts\python.exe scripts\deploy_hf.py <your-hf-username>
-```
-The script creates a Docker Space, uploads code, weights and `backend/data/cache` (which git ignores), and stores the API keys from `.env` as Space secrets. The live link is `https://<username>-verdantix.hf.space` (https, so phone camera and GPS work).
-
 ## Always-on cloud deployment (free)
 
-- **Frontend:** Vercel, root directory `frontend`. `frontend/config.js` sets `window.VX_API` to the backend URL.
+- **Frontend:** Vercel, root directory `frontend`. `frontend/config.js` sets `window.VX_API` to the backend URL (no secrets in it).
+- **Environment variables (Render):** `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPERATOR_TOKEN`, `INGEST_TOKEN`, `VERDANTIX_LITE=1`, `PYTHON_VERSION=3.12.7`; optional `ALLOWED_ORIGINS`, `VERDANTIX_DB`, `CCTV_*` thresholds. See `.env.example`.
+- Hugging Face Spaces was tried first; Docker Spaces now need a paid plan, so it isn't used (`scripts/deploy_hf.py` is kept for reference).
 - **Backend:** Render free web service from `render.yaml` in **lite mode**: same twin, models, alerts, copilot and reports, but no PyTorch, so YOLO/CLIP are replaced by Gemini vision for photo checks (fits in 512 MB). Trained models load from `backend/data/cache/models.pkl` (written on first local run), so start-up takes seconds. A free uptime pinger (cron-job.org, every 10 min on `/api/campus`) keeps it awake.
 - **Full mode** (YOLO11n + fine-tuned bin model + CLIP on CPU) runs locally, or on any VM with `scripts/setup_vm.sh`.
 
@@ -96,7 +90,28 @@ Metrics: `power_kw`, `water_lph` (buildings), `bin_fill` (bins), `people` (rooms
 
 ## Demo
 
-Press **▶ Guided demo** in the header: it walks through night leak → work order → tank overflow → empty-room AC → bin route → copilot → what-if → student QR, with captions (→ / Esc to skip / stop).
+Sign in with **Operator sign-in** (the demo passcode is given to judges with the submission), then press **▶ Guided demo** in the header: it walks through night leak → work order → tank overflow → empty-room AC → bin route → copilot → what-if → student QR, with captions (→ / Esc to skip / stop).
+
+## Security, records and trust
+
+| Area | What's in place |
+|---|---|
+| **Access** | Public: view the twin, report problems, copilot, what-if. **Operator** (passcode `OPERATOR_TOKEN`, sent as `X-Operator`): clock and demo controls, assign / dismiss / label / reopen incidents, work orders, CCTV from the dashboard. **Sensors** (`INGEST_TOKEN` as `X-Token`): `/api/ingest`, `/api/cctv`. The copilot can only create work orders for signed-in operators. No secrets live in frontend code. |
+| **Limits** | Per-device rate limits (reports 6/min, vision 30/min, copilot 12/min, weekly report 4/min), 8 MB upload cap, JPEG/PNG/WebP only, pixel-count limit, server-chosen filenames, 30-day photo retention, one or two concurrent inferences, generic error messages, CORS limited to `ALLOWED_ORIGINS`. |
+| **Records** | Incidents, work orders, reports, confirmations and credits are saved to SQLite (`backend/data/state/verdantix.db`) every few seconds and restored on start-up; demo injections are closed on restart. Every operator action and report is written to an append-only **audit log** (`GET /api/audit`, operator only). Backup: copy the `.db` file. |
+| **Incident lifecycle** | Every incident has a timeline (detected, escalated, assigned, acknowledged, in progress, proof uploaded, verified or failed, resolved, reopened, labelled). Work orders: assigned → acknowledged → in progress → awaiting verification → done (only via a verified after-fix photo), with comments, cancel, reopen and overdue escalation. Operators label detections Correct / False alarm / Duplicate / Needs inspection; precision per source is shown in Data & models. |
+| **Reports** | Status follows the linked incident (open, in progress, closed with the reason). One confirmation and one credit per person; closed incidents can't be confirmed. Public names are pseudonymous (first name + initial). Reporters see their reports' status in the app. |
+| **CCTV** | One incident per camera and problem: opens after 2 consecutive detections over the score threshold, later frames update it (snapshot at most once a minute), closes after 3 clean frames, reopens if the problem returns within 15 minutes. If the vision provider fails, nothing is raised or cleared. Thresholds are environment settings. |
+| **Provenance** | Every incident, building, tank and bin is labelled *Dataset replay*, *Measured*, *AI-inferred*, *Manual report*, *Simulated* or *Estimated*; a stale sensor is shown as stale, never as healthy. The dashboard shows when its data last updated. |
+| **Savings** | What-if results are labelled **potential (modelled)** with a ±25% range, the baseline and projection, and every assumption; scenarios can be compared and exported to CSV. The **impact ledger** lists fixed incidents with the *estimated* avoided loss; measured savings need before/after meter data. |
+| **Models** | Scores are shown as uncalibrated model scores with their thresholds, not as probabilities. `/api/health` and Data & models show the active vision mode (full: YOLO11n + CLIP locally; lite: cloud vision API), provider health, the last success and the last error; a failing provider is backed off for a minute. |
+
+### Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+Covers: anonymous users can't run operator actions; sensor auth and range checks; invalid, oversized and wrong-format uploads; no leaked errors; repeated CCTV frames make one incident that closes and reopens; idempotent confirmations and credits; closed reports can't be confirmed; work-order transition rules; audit entries; vision outages raise nothing; savings labelled as potential; rate limiting; records survive a restart. CI runs them on every push (`.github/workflows/ci.yml`).
 
 ## Architecture
 
@@ -109,10 +124,13 @@ Press **▶ Guided demo** in the header: it walks through night leak → work or
 ```
 
 ## Honest limits
-- The meter data is real but comes from other campuses, rescaled to DSU's footprint. It is not DSU's own consumption.
-- The leak detector uses one inlet signal. BattLeDIM's best methods use all 33 pressure sensors.
-- The occupancy model is accurate on UCI data (see the app), but alerts come only from camera evidence or after-hours rules.
-- Demo scenarios (leak, AC left on, bin overflow, tank overflow) are injections, and the UI labels them as such.
-- Tank levels are simulated from the fed buildings' metered water use; capacities, pump ratings, time-of-day tariff and capex figures are stated assumptions (see Data & models).
+- **Not DSU's meters.** Building, room and water data are real open datasets from other campuses, rescaled to DSU's floor areas; the UI labels them as dataset replay. Tanks and bins are simulated from that demand. Rupees and CO₂ are estimates from stated assumptions.
+- **Vision is not validated on DSU footage.** Bin YOLO and occupancy numbers are on held-out public data; CLIP and the cloud vision path have no DSU evaluation set yet. Operator labels (correct / false alarm) are collected so precision can be measured in use.
+- **Leak detection** uses one inlet signal (7 of 14 bursts caught in 3 days, about 54% of flagged nights real); the best published methods use all 33 pressure sensors.
+- **Savings are potential, not measured.** Measured savings need before/after meter readings at DSU.
+- **Persistence on Render's free tier:** the SQLite file survives restarts of the process but not a redeploy or instance replacement (the free disk is not persistent). Use a persistent disk or the VM setup (`scripts/setup_vm.sh`) for durable records.
+- **Accounts:** one shared operator passcode and one sensor token, not individual user accounts.
+- Demo scenarios (leak, AC left on, bin overflow, tank overflow) are injections, labelled "Simulated demo", and closed on restart.
+- The name Verdantix is also used by an existing research firm; check before any commercial use.
 
 Built during CodeClash 2.0 (15–16 Oct 2026). Ideas carried over from the team's earlier Clean City project. All code is new.

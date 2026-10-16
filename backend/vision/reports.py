@@ -26,6 +26,16 @@ KIND_TITLE = {"waste": "Waste reported", "water": "Water leak reported", "energy
 CATEGORY_KIND = {"waste": "waste", "water": "water", "energy": "energy", "other": "resource"}
 IMPACT_INR = {"water": 300, "waste": 150, "energy": 200, "resource": 100}
 CONFIRMS_TO_VERIFY = 2   # the original reporter + 2 more people
+CLOSED_ALERT = {"resolved": "fixed", "self-cleared": "cleared", "dismissed": "dismissed", "rejected": "rejected as false"}
+
+
+def display_name(name):
+    """Pseudonymous public name: first name + last initial, e.g. 'Asha R.'"""
+    parts = [p for p in str(name or "").split() if p]
+    if not parts:
+        return "Anonymous"
+    first = parts[0][:12]
+    return f"{first} {parts[-1][0].upper()}." if len(parts) > 1 else first
 
 
 class ReportDesk:
@@ -45,13 +55,36 @@ class ReportDesk:
     def _asset(self, zone):
         return zone if zone in self.twin.campus.buildings else self.twin.campus.nearest_building(zone)
 
+    def sync(self):
+        """Report status follows its linked incident: open -> in progress -> closed."""
+        for r in self.reports:
+            a = self.twin.alerts.get(r["alert"])
+            if a is None:
+                r["status"], r["resolution"] = "closed", "incident no longer exists"
+            elif a.status in CLOSED_ALERT:
+                r["status"], r["resolution"] = "closed", CLOSED_ALERT[a.status]
+            else:
+                r["status"], r["resolution"] = ("in_progress" if a.status == "assigned" else "open"), None
+                r["verified"] = r.get("verified", False) or a.source == "student"
+
     def _nearby_open(self, kind, lng, lat):
-        return next((r for r in reversed(self.reports) if r["status"] == "open" and r["kind"] == kind
+        self.sync()   # only live incidents can collect confirmations
+        return next((r for r in reversed(self.reports) if r["status"] in ("open", "in_progress") and r["kind"] == kind
                      and haversine_m(lng, lat, r["lng"], r["lat"]) <= 60), None)
 
-    def _confirm(self, r, reporter):
+    def _confirm(self, r, reporter, who=""):
+        confirmers = r.setdefault("_confirmers", set())
+        if who and who in confirmers:   # idempotent: one confirmation (and one credit) per person
+            return {"ok": False, "check": "repeat", "report": r["id"],
+                    "message": f"You've already reported or confirmed {r['id']}. Thanks, it's being handled."}
+        if who:
+            confirmers.add(who)
         r["confirmations"] += 1
         self._credit(reporter, 2)
+        a = self.twin.alerts.get(r["alert"])
+        if a:
+            with self.twin.lock:
+                self.twin.log(a, "confirmed", "reporter", f"{r['confirmations'] + 1} people have reported this")
         msg = f"Already reported nearby as {r['id']}. We added your confirmation."
         if not r["verified"] and r["confirmations"] >= CONFIRMS_TO_VERIFY:
             r["verified"] = True
@@ -63,7 +96,7 @@ class ReportDesk:
             msg += " Enough people confirmed it, so it's now verified."
         return {"ok": False, "check": "repeat", "message": msg, "report": r["id"]}
 
-    def _file(self, kind, zone, lng, lat, note, reporter, accuracy_m, verified, image_url=None, clip=None, h=None, emb=None, asset=None):
+    def _file(self, kind, zone, lng, lat, note, reporter, accuracy_m, verified, image_url=None, clip=None, h=None, emb=None, asset=None, who=""):
         sim = self.twin.clock.now()
         title = f"{KIND_TITLE[kind]} near {self._zone_name(zone)}" + ("" if verified else " (unverified)")
         detail = note or (clip["top"][0]["label"] if clip else "Reported without a photo")
@@ -78,13 +111,15 @@ class ReportDesk:
         rep = {"id": f"R{len(self.reports) + 1:03d}", "alert": alert.id, "kind": kind, "zone": zone, "lng": lng, "lat": lat,
                "note": note, "image": image_url, "status": "open", "confirmations": 0, "clip": clip, "verified": verified,
                "reporter": reporter or "anonymous", "gps_accuracy_m": round(accuracy_m) if accuracy_m else None,
-               "created": sim.isoformat(timespec="minutes"), "_hash": h, "_emb": emb, "t": time.time()}
+               "created": sim.isoformat(timespec="minutes"), "_hash": h, "_emb": emb, "t": time.time(),
+               "_confirmers": {who} if who else set(), "resolution": None}
         self.reports.append(rep)
         self._credit(reporter, 10 if verified else 5)
         return {"ok": True, "verified": verified, "report": self.public(rep), "alert": alert.id,
                 "credits": self.points.get(reporter, 0) if reporter else None}
 
-    def submit(self, img, lng, lat, note, image_url, reporter="", accuracy_m=0.0, category=""):
+    def submit(self, img, lng, lat, note, image_url, reporter="", accuracy_m=0.0, category="", ip=""):
+        who = (reporter.strip().lower() or "") + "|" + ip if ip or reporter else ""
         zone, dist = self.twin.campus.locate(lng, lat)
         if zone is None:
             return {"ok": False, "check": "location", "message": f"That spot is {dist:.0f} m from any campus zone. Reports must be on the DSU campus."}
@@ -95,8 +130,8 @@ class ReportDesk:
                 return {"ok": False, "check": "issue", "message": "Pick what kind of problem it is, or add a photo."}
             r = self._nearby_open(chosen, lng, lat)
             if r:
-                return self._confirm(r, reporter)
-            return self._file(chosen, zone, lng, lat, note, reporter, accuracy_m, verified=False)
+                return self._confirm(r, reporter, who)
+            return self._file(chosen, zone, lng, lat, note, reporter, accuracy_m, verified=False, who=who)
 
         h = phash(img)
         for r in self.reports:
@@ -106,7 +141,7 @@ class ReportDesk:
             analysis, emb = self.vision.analyze(img)
         except VisionUnavailable:
             if chosen:  # AI is down: still get it to facilities, unverified
-                return self._file(chosen, zone, lng, lat, note, reporter, accuracy_m, False, image_url, h=h)
+                return self._file(chosen, zone, lng, lat, note, reporter, accuracy_m, False, image_url, h=h, who=who)
             return {"ok": False, "check": "issue", "message": "The photo check is busy. Pick a category and send again."}
         clip = analysis["clip"]
         scores = clip.get("scores", {})
@@ -121,10 +156,11 @@ class ReportDesk:
         if not kind:
             return {"ok": False, "check": "issue", "message": "We couldn't see a waste, water or energy problem in this photo. Pick a category, or try a closer shot.", "clip": clip}
 
+        self.sync()
         for r in self.reports:
-            if r["status"] == "open" and r["_emb"] is not None and haversine_m(lng, lat, r["lng"], r["lat"]) <= 60 \
-                    and float(np.dot(emb, r["_emb"])) >= 0.90:
-                return self._confirm(r, reporter)
+            if r["status"] in ("open", "in_progress") and r["_emb"] is not None and len(r["_emb"]) == len(emb) \
+                    and haversine_m(lng, lat, r["lng"], r["lat"]) <= 60 and float(np.dot(emb, r["_emb"])) >= 0.90:
+                return self._confirm(r, reporter, who)
 
         asset = None
         if kind == "waste" and analysis.get("bin"):
@@ -132,14 +168,27 @@ class ReportDesk:
             if haversine_m(lng, lat, *self.twin.campus.location(near_bin)) < 60:
                 asset = near_bin
                 self.twin.observe_bin(near_bin, analysis["bin"]["fill"], "student")
-        return self._file(kind, zone, lng, lat, note, reporter, accuracy_m, seen, image_url, clip, h, emb, asset)
+        return self._file(kind, zone, lng, lat, note, reporter, accuracy_m, seen, image_url, clip, h, emb, asset, who)
 
     def leaderboard(self):
-        return [{"name": n, "credits": p} for n, p in sorted(self.points.items(), key=lambda kv: -kv[1])[:10]]
+        return [{"name": display_name(n), "credits": p} for n, p in sorted(self.points.items(), key=lambda kv: -kv[1])[:10]]
 
     @staticmethod
     def public(r):
-        return {k: v for k, v in r.items() if not k.startswith("_")}
+        """What anyone can see: no exact names, GPS accuracy or internal fields."""
+        out = {k: v for k, v in r.items() if not k.startswith("_") and k not in ("t", "gps_accuracy_m")}
+        out["reporter"] = display_name(r.get("reporter")) if r.get("reporter") not in (None, "", "anonymous") else "Anonymous"
+        return out
+
+    def get(self, rid):
+        self.sync()
+        r = next((r for r in self.reports if r["id"] == rid), None)
+        if not r:
+            return None
+        a = self.twin.alerts.get(r["alert"])
+        return {**self.public(r), "alert_status": a.status if a else None,
+                "timeline": [{k: h[k] for k in ("at", "event", "detail")} for h in (a.history if a else [])][-10:]}
 
     def list(self):
+        self.sync()
         return [self.public(r) for r in reversed(self.reports)]

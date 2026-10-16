@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -27,6 +27,7 @@
   <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5zM3 14l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
 </svg>
 
@@ -47,11 +48,13 @@
     <button class="chip" id="jumpMorning" title="Jump to 9 AM"><svg><use href="#i-sun"/></svg>9 AM</button>
     <span id="tariff" class="tariff" title="Time-of-day electricity tariff">--</span>
     <span id="iot" class="iot" hidden title="Readings arriving from real sensors">IoT live</span>
+    <span id="fresh" class="fresh" title="How recent the dashboard data is">Connecting…</span>
   </div>
 
   <div class="actions">
     <button id="autoBtn" class="primary"><svg><use href="#i-play"/></svg><span>Guided demo</span></button>
     <button id="qrBtn" class="float-btn" title="Students scan this to report a problem"><svg><use href="#i-qr"/></svg><span>Report QR</span></button>
+    <button id="opBtn" class="float-btn" title="Facilities staff: sign in to assign, dismiss and run demo controls"><svg><use href="#i-lock"/></svg><span>Operator sign-in</span></button>
     <button id="aboutBtn" class="float-btn icon" title="Data and models" aria-label="Data and models"><svg><use href="#i-info"/></svg></button>
   </div>
 </header>
@@ -67,6 +70,7 @@
       <div><span>Water today</span><b><i id="kWater">--</i> kL</b></div>
       <div class="hot"><span>Open alerts</span><b><i id="kAlerts">--</i></b><em id="kWaste"></em></div>
     </div>
+    <p class="provline">Meters: dataset replay of open data rescaled to DSU, not live DSU meters. ₹ and CO₂ are estimates. <a href="#" id="provMore">How it works</a></p>
   </section>
 
   <nav class="tabs" id="tabs" aria-label="Panels">
@@ -81,7 +85,14 @@
   </nav>
 
   <div class="tab on" id="tab-alerts">
-    <ol class="loop" aria-label="How every problem is handled"><li>Detect</li><li>Verify</li><li>Assign</li><li>Prove</li></ol>
+    <ol class="loop" aria-label="How every problem is handled"><li>Detect</li><li>Verify</li><li>Assign</li><li>Fix</li><li>Prove</li></ol>
+    <div id="priority" class="list"></div>
+    <h3>Incidents</h3>
+    <form id="alertFilters" class="filters" aria-label="Filter incidents">
+      <select name="status" aria-label="Status"><option value="open">Open</option><option value="closed">Closed</option><option value="all">All</option></select>
+      <select name="kind" aria-label="Category"><option value="all">All types</option><option value="energy">Energy</option><option value="water">Water</option><option value="waste">Waste</option><option value="resource">Resource</option></select>
+      <select name="source" aria-label="Source"><option value="all">All sources</option><option value="replay">Dataset replay + ML</option><option value="ai">Camera AI</option><option value="manual">Reports</option><option value="measured">Measured</option><option value="sim">Simulated demo</option></select>
+    </form>
     <div id="alertList" class="list"></div>
     <h3>Work orders</h3>
     <div id="orderList" class="list"></div>
@@ -90,7 +101,7 @@
   <div class="tab" id="tab-building">
     <select id="bldSelect" aria-label="Building"></select>
     <div id="bldInfo" class="stats"></div>
-    <button class="soft wide" id="bldWalk"><svg><use href="#i-walk"/></svg>Walk inside in 360°</button>
+    <button class="soft wide" id="bldWalk"><svg><use href="#i-walk"/></svg>Open campus 360° tour with live data</button>
     <div class="chartbox"><canvas id="bldChart" height="190"></canvas></div>
     <h3>Rooms in SOE A Block <small>AC, lights and occupancy</small></h3>
     <div id="roomGrid" class="rooms"></div>
@@ -98,6 +109,8 @@
     <div id="tankList" class="list"></div>
     <h3>Bins <small>fill level and time to full</small></h3>
     <div id="binList" class="list"></div>
+    <h3>Sensor health <small>real devices posting readings</small></h3>
+    <div id="sensorList" class="list"></div>
   </div>
 
   <div class="tab" id="tab-vision">
@@ -150,6 +163,7 @@
     <div class="row"><button id="genReport" class="dark">Generate weekly report</button><a id="pdfLink" class="btnlink" href="/api/report/weekly.pdf" target="_blank" hidden>Download PDF</a></div>
     <div class="chartbox"><canvas id="weekChart" height="150"></canvas></div>
     <div id="reportOut" class="md"></div>
+    <div id="ledger"></div>
   </div>
 
   <div class="tab" id="tab-students">
@@ -191,7 +205,7 @@
       <button class="soft" id="orbitBtn" title="Slowly orbit the campus"><svg><use href="#i-orbit"/></svg>Orbit</button>
       <button class="soft" id="homeBtn" title="Back to the whole campus"><svg><use href="#i-home"/></svg>Campus</button>
     </div>
-    <button id="walkBtn" class="dark wide" title="Walk the real campus in 360° with live data on top"><svg><use href="#i-walk"/></svg>Walk in 360°</button>
+    <button id="walkBtn" class="dark wide" title="DSU's campus-wide 360° tour with live twin data on top"><svg><use href="#i-walk"/></svg>Campus 360° tour</button>
   </section>
   <section class="board float" id="board" aria-label="Green score by building"></section>
 </div>
@@ -208,7 +222,7 @@
 <div id="walk" class="walk" hidden>
   <iframe id="walkFrame" title="DSU 360 degree campus tour" allowfullscreen allow="fullscreen; gyroscope; accelerometer"></iframe>
   <div class="walkbar"><button id="walkBack" class="float-btn"><svg><use href="#i-back"/></svg>Back to twin</button>
-    <select id="walkBld" aria-label="Building"></select><a id="walkOpen" class="walksrc" target="_blank" rel="noopener">360° imagery: DSU official virtual tour</a></div>
+    <select id="walkBld" aria-label="Building"></select><span id="walkNote" class="walksrc"></span><a id="walkOpen" class="walksrc" target="_blank" rel="noopener">Imagery: DSU official virtual tour</a></div>
   <div id="walkHud" class="walkhud"></div>
 </div>
 
@@ -218,11 +232,19 @@
 <div id="caption" class="caption" hidden><span id="capStep"></span><p id="capText"></p>
   <div class="row"><button id="capStop" class="soft">Stop</button><button id="capNext" class="dark">Next</button></div></div>
 <div id="toast" class="toast" role="status" hidden></div>
+<input type="file" id="proofFile" accept="image/*" hidden>
+<dialog id="signin" class="signin"><form id="signinForm">
+  <h2>Operator sign-in</h2>
+  <p class="sub">For facilities staff. Viewing the twin and reporting problems don't need this.</p>
+  <label class="f">Passcode<input id="opPass" type="password" autocomplete="current-password" required></label>
+  <p id="opMsg" class="err" role="alert"></p>
+  <div class="row"><button type="button" class="soft" onclick="this.closest('dialog').close()">Cancel</button><button class="dark">Sign in</button></div>
+</form></dialog>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

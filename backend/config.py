@@ -1,4 +1,4 @@
-﻿"""Shared settings and the impact constants every rupee / CO2 figure comes from."""
+"""Shared settings and the impact constants every rupee / CO2 figure comes from."""
 import os
 from pathlib import Path
 
@@ -80,5 +80,25 @@ LITE = os.getenv("VERDANTIX_LITE", "") == "1" or _ilu.find_spec("torch") is None
 WS_INTERVAL_S = float(os.getenv("WS_INTERVAL", "3" if LITE else "1.5"))
 VISION_MODEL = os.getenv("VISION_MODEL", GEMINI_MODEL)
 
-# Optional shared secret for the IoT ingest API (set in .env for a public deployment).
-INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")
+# Access control (see backend/security.py). Set both on any public deployment.
+OPERATOR_TOKEN = os.getenv("OPERATOR_TOKEN", "")   # facilities staff passcode (X-Operator header)
+INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")       # sensors / CCTV agents (X-Token header); falls back to OPERATOR_TOKEN
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
+    "ALLOWED_ORIGINS", "https://verdantix-frontend.vercel.app,http://localhost:8000,http://127.0.0.1:8000").split(",") if o.strip()]
+MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "8"))
+MAX_IMAGE_PIXELS = 60_000_000          # reject decompression bombs (a 12 MP photo is 12 000 000)
+UPLOAD_RETENTION_DAYS = int(os.getenv("UPLOAD_RETENTION_DAYS", "30"))
+
+# Persistence: alerts, work orders, reports, credits and the audit log live in SQLite.
+DB_PATH = Path(os.getenv("VERDANTIX_DB", str(DATA / "state" / "verdantix.db")))
+
+# CCTV incident rules (see app.cctv_frame)
+CCTV_RAISE = float(os.getenv("CCTV_RAISE", "0.6"))       # model score needed to count a frame as a detection
+CCTV_CLEAR = float(os.getenv("CCTV_CLEAR", "0.35"))      # score below which a frame counts as clean
+CCTV_MIN_FRAMES = int(os.getenv("CCTV_MIN_FRAMES", "2"))  # consecutive detections before an incident opens
+CCTV_CLEAN_FRAMES = int(os.getenv("CCTV_CLEAN_FRAMES", "3"))  # consecutive clean frames before it closes
+CCTV_REOPEN_S = int(os.getenv("CCTV_REOPEN_S", "900"))   # same problem again within 15 min reopens the old incident
+
+# Plausible ranges for sensor readings; anything outside is rejected and counted as a sensor error.
+SENSOR_RANGES = {"power_kw": (0, 5000), "water_lph": (0, 200000), "bin_fill": (0, 100), "people": (0, 500), "tank_level_pct": (0, 100)}
+SENSOR_FRESH_S, SENSOR_STALE_S = 120, 900

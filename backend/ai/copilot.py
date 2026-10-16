@@ -19,7 +19,13 @@ Rules:
 - If asked to create a work order, call create_work_order.
 - Electricity has a time-of-day tariff (peak 06-10 and 18-22 cost more, 22-06 cheaper); suggest shifting flexible loads such as water pumping.
 - Water tanks have float-switch pumps; an overflowing tank wastes water and pump energy.
-- The data is real open datasets (BDG2, CU-BEMS, BattLeDIM, UCI) mapped onto DSU's buildings; say so if asked about data."""
+- The data is real open datasets (BDG2, CU-BEMS, BattLeDIM, UCI) mapped onto DSU's buildings; say so if asked about data.
+- Be evidence-driven: for each claim give the alert ID or building, the time (twin clock time from campus_overview),
+  the source (dataset replay / measured sensor / camera AI / student report / simulated demo), and for savings say
+  they are modelled potential savings with stated assumptions, not measured. Never claim work was completed unless
+  a work order shows status done.
+- Model scores are uncalibrated scores, not probabilities: write "model score 0.72", not "72% sure".
+- End with one line "Assumptions & limits:" naming the main assumption or uncertainty."""
 
 LANG = {
     "kn": "Reply in Kannada (ಕನ್ನಡ script). Keep alert IDs, numbers, units and building names exactly as given.",
@@ -43,7 +49,7 @@ TOOLS = [
 ]
 
 
-def make_handlers(twin):
+def make_handlers(twin, operator=False):
     def campus_overview():
         st = twin.state()
         return {"time": st["time"], **st["kpis"],
@@ -53,7 +59,7 @@ def make_handlers(twin):
         st = twin.state()
         al = [a for a in st["alerts"] if a["status"] in ("open", "assigned") and (kind in (None, "all") or a["kind"] == kind)]
         al.sort(key=lambda a: a["inr_per_day"], reverse=True)
-        return [{k: a[k] for k in ("id", "kind", "title", "detail", "severity", "source", "inr_per_day", "co2_kg_per_day", "status", "work_order", "asset")} for a in al]
+        return [{k: a[k] for k in ("id", "kind", "title", "detail", "severity", "source", "inr_per_day", "co2_kg_per_day", "status", "work_order", "asset", "created")} for a in al]
 
     def building_status(building):
         st = twin.state()
@@ -91,7 +97,14 @@ def make_handlers(twin):
         return {"bins": twin.bin_state(sim), "route": twin.pickup_route(sim)}
 
     def create_work_order(alert_id, note=""):
-        o = twin.create_order(alert_id, note)
+        if not operator:
+            return {"error": "Only signed-in facilities operators can create work orders. Ask an operator to assign it."}
+        if alert_id not in twin.alerts:
+            return {"error": f"unknown alert {alert_id}"}
+        try:
+            o = twin.create_order(alert_id, note, by="copilot (operator)")
+        except ValueError as e:
+            return {"error": str(e)}
         return {"work_order": o.id, "team": o.team, "deadline": o.deadline, "title": o.title}
 
     return {"campus_overview": campus_overview, "list_alerts": list_alerts, "building_status": building_status,
@@ -115,8 +128,8 @@ def fallback_answer(handlers, question):
     return "\n".join(lines)
 
 
-def ask(twin, question, history=None, lang="en"):
-    handlers = make_handlers(twin)
+def ask(twin, question, history=None, lang="en", operator=False):
+    handlers = make_handlers(twin, operator)
     system = SYSTEM + ("\n- " + LANG[lang] if lang in LANG else "")
     base = [{"role": "system", "content": system}] + (history or [])[-6:] + [{"role": "user", "content": question}]
     errors = []

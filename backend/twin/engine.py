@@ -49,9 +49,11 @@ class Alert:
     lat: float
     inr_per_day: float = 0.0
     co2_kg_per_day: float = 0.0
-    status: str = "open"   # open | assigned | resolved | self-cleared
+    status: str = "open"   # open | assigned | resolved | self-cleared | dismissed | rejected
     evidence: dict = field(default_factory=dict)
     work_order: str | None = None
+    history: list = field(default_factory=list)     # incident timeline: [{at, wall, event, by, detail}]
+    feedback: dict | None = None                    # operator label: {verdict, reason, by, at}
 
 
 @dataclass
@@ -62,9 +64,26 @@ class WorkOrder:
     title: str
     created: str
     deadline: str
-    status: str = "assigned"   # assigned | done | overdue
+    status: str = "assigned"   # assigned | acknowledged | in_progress | awaiting_verification | done | reopened | cancelled
     proof: dict | None = None
     note: str = ""
+    overdue: bool = False
+    history: list = field(default_factory=list)
+    comments: list = field(default_factory=list)
+
+
+# Allowed work-order moves (server-side). Proof upload handles awaiting_verification -> done itself.
+ORDER_FLOW = {
+    "assigned": {"acknowledged", "in_progress", "cancelled"},
+    "acknowledged": {"in_progress", "cancelled"},
+    "in_progress": {"awaiting_verification", "cancelled"},
+    "awaiting_verification": {"in_progress", "done"},
+    "reopened": {"acknowledged", "in_progress", "cancelled"},
+    "done": {"reopened"},
+    "cancelled": set(),
+}
+CLOSED = ("resolved", "self-cleared", "dismissed", "rejected")
+FEEDBACK = {"correct", "false_positive", "wrong_category", "duplicate", "insufficient_evidence", "uncertain"}
 
 
 class Twin:
@@ -123,6 +142,7 @@ class Twin:
         self._demand_memo = {}
         # Live IoT readings (ESP32 etc.) override the replayed data while fresh.
         self.live: dict[tuple, dict] = {}
+        self.sensor_health: dict[str, dict] = {}
         self._snap, self._snap_t = None, 0.0
 
     # ---------- trained-model cache (fast start on small cloud machines) ----------
@@ -228,8 +248,10 @@ class Twin:
             for a in self.alerts.values():
                 if a.source == "demo-scenario" and a.status in ("open", "assigned"):
                     a.status, n = "self-cleared", n + 1
+                    self.log(a, "self-cleared", "operator", "demo scenario cleared")
                     if a.work_order and self.orders[a.work_order].status != "done":
                         self.orders[a.work_order].status = "cancelled"
+                        self.log(self.orders[a.work_order], "cancelled", "operator", "demo scenario cleared")
             self._snap = None
             return n
 
@@ -239,6 +261,13 @@ class Twin:
     def ingest(self, sensor, asset, metric, value):
         """One reading from a real sensor. Building power/water and tank level override the replay while fresh."""
         value = float(value)
+        health = self.sensor_health.setdefault(sensor, {"sensor": sensor, "readings": 0, "rejected": 0, "last_error": None,
+                                                        "first_seen": time.time()})
+        lo, hi = C.SENSOR_RANGES.get(metric, (float("-inf"), float("inf")))
+        if not (lo <= value <= hi) or value != value:
+            health["rejected"] += 1
+            health["last_error"] = f"{metric}={value} outside {lo}-{hi}"
+            raise ValueError(f"{metric} reading {value} is outside the plausible range {lo}-{hi}")
         with self.lock:
             if metric == "bin_fill":
                 self.observe_bin(asset, max(0.0, min(value, 100.0)), "iot")
@@ -253,11 +282,24 @@ class Twin:
             else:
                 raise KeyError(f"unknown metric {metric}")
             self.live[(asset, metric)] = {"sensor": sensor, "value": value, "t": time.time()}
+            health.update(readings=health["readings"] + 1, last=time.time(), asset=asset, metric=metric, value=value)
             return {"ok": True, "asset": asset, "metric": metric, "value": value}
 
     def _live(self, asset, metric):
         r = self.live.get((asset, metric))
         return r["value"] if r and time.time() - r["t"] < self.LIVE_FRESH_S else None
+
+    def sensors_status(self):
+        """Sensor health: a sensor that stops reporting is shown as stale/offline, never as healthy."""
+        now = time.time()
+        out = []
+        for h in self.sensor_health.values():
+            age = now - h["last"] if h.get("last") else None
+            status = "offline" if age is None or age > C.SENSOR_STALE_S else "stale" if age > C.SENSOR_FRESH_S else "fresh"
+            total = h["readings"] + h["rejected"]
+            out.append({**{k: v for k, v in h.items() if k != "first_seen"}, "age_s": round(age) if age is not None else None,
+                        "status": status, "error_rate": round(h["rejected"] / total, 3) if total else 0.0})
+        return sorted(out, key=lambda x: x["sensor"])
 
     def live_sensors(self):
         now = time.time()
@@ -405,6 +447,14 @@ class Twin:
         return {"stops": route, "coords": coords, "distance_m": round(dist), "greedy_m": round(greedy),
                 "method": "nearest neighbour + 2-opt"}
 
+    # ---------- incident timeline ----------
+    def log(self, item, event, by="system", detail=""):
+        entry = {"at": self.clock.now().isoformat(timespec="minutes"), "wall": datetime.now().isoformat(timespec="seconds"),
+                 "event": event, "by": by, "detail": str(detail)[:300]}
+        item.history.append(entry)
+        del item.history[:-40]
+        return entry
+
     # ---------- alerts ----------
     def _raise(self, kind, rule, asset, title, detail, severity, source, inr_day, co2_day, evidence, sim):
         key = f"{kind}:{rule}:{asset}"
@@ -414,14 +464,16 @@ class Twin:
         if existing:
             existing.updated, existing.detail, existing.evidence = stamp, detail, evidence
             existing.inr_per_day, existing.co2_kg_per_day = round(inr_day), round(co2_day, 1)
-            if severity == "crit":
+            if severity == "crit" and existing.severity != "crit":
                 existing.severity = "crit"
+                self.log(existing, "escalated", "system", "severity raised to critical")
             return existing
         lng, lat = self.campus.location(asset.split("/")[0])
         a = Alert(id=f"A{next(self._ids):04d}", kind=kind, rule=rule, asset=asset, title=title, detail=detail,
                   severity=severity, source=source, created=stamp, updated=stamp, lng=lng, lat=lat,
                   inr_per_day=round(inr_day), co2_kg_per_day=round(co2_day, 1), evidence=evidence)
         self.alerts[a.id] = a
+        self.log(a, "detected", source, detail)
         self.events.append({"kind": kind, "asset": asset, "lng": lng, "lat": lat, "at": stamp, "rule": rule})
         return a
 
@@ -430,6 +482,7 @@ class Twin:
             if a.kind == kind and a.rule == rule and (asset is None or a.asset == asset) \
                     and a.status == "open" and a.source == "sensor-ml":
                 a.status = "self-cleared"
+                self.log(a, "self-cleared", "system", "condition back to normal")
 
     def _detect(self, sim, state):
         # Building energy: robust z-score vs hour-of-week baseline, confirmed by Isolation Forest.
@@ -549,7 +602,9 @@ class Twin:
                 st["buildings"][b] = {"name": p["name"], "type": p["type"], "power_kw": round(kw, 1),
                                       "baseline_kw": round(self.base[(b, "elec")].expected(ts), 1),
                                       "water_lph": round(wl), "water_baseline_lph": round(self.base[(b, "water")].expected(ts)),
-                                      "live": live_kw is not None or live_wl is not None, "_ts": ts}
+                                      "live": live_kw is not None or live_wl is not None,
+                                      "source": "measured" if live_kw is not None else "replay",
+                                      "stale_sensor": live_kw is None and (b, "power_kw") in self.live, "_ts": ts}
 
             rrow, _ = self._row(self.rooms, sim, 2019, "15min")
             occ_in = [[float(np.nan_to_num(rrow[(r, m)])) for m in ("temp_c", "rh", "lux")] for r in self.room_ids]
@@ -602,6 +657,9 @@ class Twin:
             st["orders"] = [asdict(o) for o in sorted(self.orders.values(), key=lambda o: o.created, reverse=True)]
             st["scenarios"] = [{"kind": s["kind"], "target": s["target"]} for s in self.scenarios]
             st["live_sensors"] = len(self.live_sensors())
+            st["generated_at"] = datetime.now().isoformat(timespec="seconds")
+            st["data_mode"] = {"meters": "dataset replay", "rooms": "dataset replay", "water_network": "dataset replay",
+                               "tanks": "simulated", "bins": "simulated", "money_co2": "estimated", "clock_speed": self.clock.speed}
             return st
 
     def snapshot_json(self, max_age=None):
@@ -645,18 +703,134 @@ class Twin:
         }
 
     # ---------- work orders ----------
-    def create_order(self, alert_id, note=""):
+    def create_order(self, alert_id, note="", by="operator"):
         with self.lock:
             a = self.alerts[alert_id]
-            if a.work_order:
-                return self.orders[a.work_order]
+            if a.status in CLOSED:
+                raise ValueError(f"{a.id} is already {a.status}; reopen it first.")
+            if a.work_order and self.orders[a.work_order].status != "cancelled":
+                return self.orders[a.work_order]   # idempotent: one live order per incident
             sim = self.clock.now()
             o = WorkOrder(id=f"WO{next(self._ids):04d}", alert_id=a.id, team=TEAM[a.kind], title=a.title,
                           created=sim.isoformat(timespec="minutes"),
                           deadline=(sim + timedelta(hours=C.DEADLINE_H[a.kind])).isoformat(timespec="minutes"), note=note)
             self.orders[o.id] = o
             a.work_order, a.status = o.id, "assigned"
+            self.log(o, "assigned", by, f"to {o.team}, due {o.deadline.replace('T', ' ')}" + (f": {note}" if note else ""))
+            self.log(a, "assigned", by, f"{o.id} to {o.team}, due {o.deadline.replace('T', ' ')}")
             return o
+
+    def set_order_status(self, order_id, status, by="operator", note=""):
+        with self.lock:
+            o = self.orders[order_id]
+            if status not in ORDER_FLOW.get(o.status, set()):
+                raise ValueError(f"Can't move {o.id} from {o.status} to {status}.")
+            if status == "done":
+                raise ValueError("Upload an after-fix photo to close the order; it is verified before closing.")
+            a = self.alerts.get(o.alert_id)
+            prev, o.status = o.status, status
+            self.log(o, status.replace("_", " "), by, note or f"from {prev.replace('_', ' ')}")
+            if note:
+                o.comments.append({"at": datetime.now().isoformat(timespec="seconds"), "by": by, "text": note[:300]})
+            if a:
+                if status == "cancelled" and a.status == "assigned":
+                    a.status = "open"
+                    self.log(a, "order cancelled", by, note or o.id)
+                elif status == "reopened":
+                    a.status = "assigned"
+                    self.log(a, "reopened", by, note or f"{o.id} reopened")
+                elif status in ("acknowledged", "in_progress"):
+                    self.log(a, f"work {status.replace('_', ' ')}", by, o.id)
+            return o
+
+    def comment_order(self, order_id, text, by="operator"):
+        with self.lock:
+            o = self.orders[order_id]
+            o.comments.append({"at": datetime.now().isoformat(timespec="seconds"), "by": by, "text": text[:300]})
+            self.log(o, "comment", by, text)
+            return o
+
+    def proof_submitted(self, order_id, by="technician"):
+        with self.lock:
+            o = self.orders[order_id]
+            if o.status in ("done", "cancelled"):
+                raise ValueError(f"{o.id} is {o.status}.")
+            o.status = "awaiting_verification"
+            self.log(o, "proof uploaded", by, "after-fix photo sent for AI verification")
+
+    def proof_failed(self, order_id, check):
+        with self.lock:
+            o = self.orders[order_id]
+            o.status = "in_progress"
+            self.log(o, "verification failed", "AI", f"issue still visible (model score {check.get('issue_score')})")
+            if o.alert_id in self.alerts:
+                self.log(self.alerts[o.alert_id], "fix not verified", "AI", f"{o.id}: photo still shows the problem")
+
+    def feedback(self, alert_id, verdict, reason="", by="operator", new_kind=None):
+        """Operator label on a detection. False positives and duplicates close the incident."""
+        if verdict not in FEEDBACK:
+            raise ValueError(f"verdict must be one of {sorted(FEEDBACK)}")
+        with self.lock:
+            a = self.alerts[alert_id]
+            a.feedback = {"verdict": verdict, "reason": reason[:300], "by": by, "at": datetime.now().isoformat(timespec="seconds"),
+                          "source": a.source}
+            self.log(a, f"labelled {verdict.replace('_', ' ')}", by, reason)
+            if verdict in ("false_positive", "duplicate") and a.status not in CLOSED:
+                a.status = "rejected"
+                if a.work_order and self.orders[a.work_order].status not in ("done", "cancelled"):
+                    self.orders[a.work_order].status = "cancelled"
+                    self.log(self.orders[a.work_order], "cancelled", by, f"incident rejected as {verdict.replace('_', ' ')}")
+            if verdict == "wrong_category" and new_kind in TEAM:
+                a.kind = new_kind
+                if a.work_order:
+                    self.orders[a.work_order].team = TEAM[new_kind]
+            return a
+
+    def dismiss(self, alert_id, by="operator", reason=""):
+        with self.lock:
+            a = self.alerts[alert_id]
+            if a.status in CLOSED:
+                return a
+            a.status = "dismissed"
+            self.log(a, "dismissed", by, reason or "dismissed by operator")
+            return a
+
+    def feedback_metrics(self):
+        """Operator-labelled precision per detection source (only labelled incidents count)."""
+        out = {}
+        for a in self.alerts.values():
+            if not a.feedback:
+                continue
+            m = out.setdefault(a.feedback.get("source", a.source), {"labelled": 0, "correct": 0, "false_positive": 0, "other": 0})
+            m["labelled"] += 1
+            v = a.feedback["verdict"]
+            m["correct" if v == "correct" else "false_positive" if v == "false_positive" else "other"] += 1
+        for m in out.values():
+            judged = m["correct"] + m["false_positive"]
+            m["precision"] = round(m["correct"] / judged, 2) if judged else None
+        return out
+
+    def ledger(self):
+        """Impact of fixed incidents. Savings are ESTIMATED from the detected loss rate; measured savings need meters."""
+        rows = []
+        for o in self.orders.values():
+            if o.status != "done" or o.alert_id not in self.alerts:
+                continue
+            a = self.alerts[o.alert_id]
+            closed = next((h["at"] for h in reversed(o.history) if h["event"] in ("done", "verified")), None)
+            hours = None
+            try:
+                hours = round((datetime.fromisoformat(closed) - datetime.fromisoformat(a.created)).total_seconds() / 3600, 1)
+            except (TypeError, ValueError):
+                pass
+            rows.append({"incident": a.id, "order": o.id, "title": a.title, "kind": a.kind, "team": o.team,
+                         "detected": a.created, "fixed": closed, "hours_to_fix": hours,
+                         "loss_rate_inr_per_day": a.inr_per_day, "co2_kg_per_day": a.co2_kg_per_day,
+                         "est_avoided_inr_per_year": round(a.inr_per_day * 365),
+                         "est_avoided_co2_t_per_year": round(a.co2_kg_per_day * 365 / 1000, 2),
+                         "measured_savings": None, "method": "estimated: detected loss rate x 365 days, assumes the fix holds",
+                         "verification": (o.proof or {}).get("issue_score")})
+        return sorted(rows, key=lambda r: r["fixed"] or "", reverse=True)
 
     def complete_order(self, order_id, proof):
         """Close an order once its proof photo has passed verification."""
@@ -665,6 +839,9 @@ class Twin:
             a = self.alerts[o.alert_id]
             o.status, o.proof = "done", proof
             a.status = "resolved"
+            self.log(o, "verified", "AI", f"after-fix photo passed (model score {proof.get('issue_score')})")
+            self.log(o, "done", "AI", "closed after verification")
+            self.log(a, "resolved", "AI", f"{o.id} fix verified from photo")
             sim = self.clock.now()
             if a.kind == "waste":
                 self.bin_collected[a.asset] = sim
@@ -677,12 +854,17 @@ class Twin:
 
     def _check_deadlines(self, sim):
         for o in self.orders.values():
-            if o.status == "assigned" and sim > datetime.fromisoformat(o.deadline):
-                o.status = "overdue"
+            if o.status not in ("done", "cancelled") and not o.overdue and sim > datetime.fromisoformat(o.deadline):
+                o.overdue = True   # escalate once
+                self.log(o, "overdue", "system", "deadline passed: escalated to the facilities supervisor")
+                if o.alert_id in self.alerts:
+                    self.log(self.alerts[o.alert_id], "escalated", "system", f"{o.id} overdue, supervisor notified")
 
-    def resolve(self, alert_id, status="resolved"):
+    def resolve(self, alert_id, status="resolved", by="system", detail=""):
         with self.lock:
-            self.alerts[alert_id].status = status
+            a = self.alerts[alert_id]
+            a.status = status
+            self.log(a, status, by, detail)
 
     # ---------- history ----------
     def backfill(self, days=30):

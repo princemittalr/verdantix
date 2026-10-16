@@ -55,6 +55,11 @@ class Vision:
         self._yolo = self._bins = self._clip = None
         self.lite = C.LITE
         self._last_call = 0.0
+        # at most N inferences at once; extra requests wait briefly, then get a clear "busy" error
+        self._slots = threading.BoundedSemaphore(1 if C.LITE else 2)
+        self.health = {"mode": "lite (cloud vision API)" if C.LITE else "full (local YOLO11n + CLIP on CPU)",
+                       "provider": C.VISION_MODEL if C.LITE else "local", "ok": None, "last_ok": None,
+                       "last_error": None, "failures": 0, "down_until": 0.0, "calls": 0}
         if self.lite:
             self.status = {"yolo": "off (cloud lite mode)", "bins": "off (cloud lite mode)",
                            "clip": f"{C.VISION_MODEL} vision (cloud lite mode)"}
@@ -82,6 +87,8 @@ class Vision:
         body = {"model": C.VISION_MODEL, "temperature": 0, "max_tokens": 1500,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": LITE_PROMPT},
                                                           {"type": "image_url", "image_url": {"url": url}}]}]}
+        if time.time() < self.health["down_until"]:   # circuit breaker: don't hammer a failing provider
+            raise VisionUnavailable("Photo check is temporarily unavailable (vision provider failing).")
         with self._lock:  # free tier: keep >= 4 s between calls
             wait = 4 - (time.time() - self._last_call)
             if wait > 0:
@@ -94,10 +101,12 @@ class Vision:
                         break
                     time.sleep(3)
             except Exception as e:
+                self._fail(type(e).__name__)
                 raise VisionUnavailable(f"Photo check unavailable ({type(e).__name__}).")
             finally:
                 self._last_call = time.time()
         if r.status_code != 200:
+            self._fail(f"HTTP {r.status_code}")
             raise VisionUnavailable(f"Photo check unavailable (vision API {r.status_code}).")
         text = r.json()["choices"][0]["message"].get("content") or ""
         m = re.search(r"\{.*\}", text, re.S)
@@ -108,7 +117,9 @@ class Vision:
         scores = {k: max(float(d.get(k, 0) or 0), 0.0) for k in ("waste", "water", "energy", "clean")}
         total = sum(scores.values())
         if not total:
+            self._fail("unparseable answer")
             raise VisionUnavailable("Photo check returned no answer.")
+        self._ok()
         scores = {k: v / total for k, v in scores.items()}
         issue = max(("waste", "water", "energy"), key=scores.get)
         labels = [str(x)[:60] for x in (d.get("labels") or [])][:3] or [issue]
@@ -196,7 +207,33 @@ class Vision:
                 out["bin"] = best
         return out
 
+    def _fail(self, why):
+        h = self.health
+        h.update(ok=False, last_error=f"{time.strftime('%H:%M:%S')} {why}", failures=h["failures"] + 1)
+        if h["failures"] >= 3:   # 3 failures in a row: back off for a minute
+            h["down_until"] = time.time() + 60
+
+    def _ok(self):
+        self.health.update(ok=True, last_ok=time.strftime("%Y-%m-%d %H:%M:%S"), failures=0, down_until=0.0)
+
     def analyze(self, img):
+        if not self._slots.acquire(timeout=20):
+            raise VisionUnavailable("Vision is busy with other photos. Try again in a few seconds.")
+        try:
+            self.health["calls"] += 1
+            out = self._analyze(img)
+            if not self.lite:
+                self._ok()
+            return out
+        except VisionUnavailable:
+            raise
+        except Exception as e:
+            self._fail(type(e).__name__)
+            raise VisionUnavailable(f"Vision model error ({type(e).__name__}).")
+        finally:
+            self._slots.release()
+
+    def _analyze(self, img):
         if self.lite:
             out = self._gemini(img)
             return out, self._cheap_embedding(img)

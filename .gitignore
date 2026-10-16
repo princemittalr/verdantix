@@ -8,3 +8,8 @@ runs/
 backend/uploads/
 *.log
 node_modules/
+backend/data/state/
+*.keystore
+signing-key-info.txt
+*.apk
+*.aab

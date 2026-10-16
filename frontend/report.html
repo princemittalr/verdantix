@@ -60,6 +60,8 @@
   .steps span { background: var(--raised); padding: 3px 9px; border-radius: 999px; }
   .steps span.pass { color: #0e7149; background: #e3f6ee; } .steps span.fail { color: #b3261e; background: #fdeaea; }
   a { color: var(--accent); }
+  .mine { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .mine:first-child { border-top: 0; } .mine span { font-weight: 600; } .mine span.closed { color: var(--ok); } .mine small { color: var(--muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -100,6 +102,8 @@
     <button id="go">Send report</button>
   </form>
   <div id="out"></div>
+  <section class="card" id="mine" hidden><div class="q">Your reports</div><div id="mineList"></div>
+    <p class="hint">Status updates as facilities work on it. Kept only on this phone.</p></section>
   <p class="sub"><a href="/">Open the live campus twin</a></p>
 </main>
 <script src="config.js"></script>
@@ -209,6 +213,7 @@ $("#f").onsubmit = async (e) => {
          <p class="sub">${d.verified ? `AI confirmed ${esc(d.report.kind)} in your photo.` : "It's marked unverified until someone else confirms it or staff check it."} Alert ${d.alert} is on the twin.${credits}</p></div>`
       : `<div class="result no"><b>${d.check === "repeat" ? "Already reported, thanks" : "Not sent yet"}</b>${steps(d.check, !!blob)}<p class="sub">${esc(d.message)}</p></div>`;
     if (d.ok) {
+      remember(d.report.id);
       $("#f").reset(); $("#name").value = name; blob = null;
       $("#preview").hidden = true; $("#photoBtns").hidden = false; $("#nophoto").hidden = false;
       try { sessionStorage.removeItem(DRAFT); } catch {}
@@ -219,6 +224,24 @@ $("#f").onsubmit = async (e) => {
   $("#go").disabled = false; $("#go").textContent = "Send report";
   $("#out").scrollIntoView({ behavior: "smooth" });
 };
+
+// Report status tracking: ids are kept on this phone only; status comes from the server.
+const MINE = "vx-mine";
+function mine() { try { return JSON.parse(localStorage.getItem(MINE) || "[]"); } catch { return []; } }
+function remember(id) { try { localStorage.setItem(MINE, JSON.stringify([id, ...mine().filter((x) => x !== id)].slice(0, 10))); } catch {} loadMine(); }
+const STATUS = { open: "Received, waiting for facilities", in_progress: "Facilities are working on it", closed: "Closed" };
+async function loadMine() {
+  const ids = mine();
+  if (!ids.length) return;
+  $("#mine").hidden = false;
+  const rows = await Promise.all(ids.map((id) => fetch(`${API}/api/reports/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)));
+  $("#mineList").innerHTML = rows.map((r, i) => r ? `<div class="mine"><b>${r.id}</b> ${esc(r.kind)} near ${esc(r.zone)}
+      <span class="${r.status}">${STATUS[r.status] || r.status}${r.resolution ? `: ${esc(r.resolution)}` : ""}</span>
+      <small>${r.verified ? "Verified" : "Unverified"}, ${r.confirmations} confirmation${r.confirmations === 1 ? "" : "s"}</small></div>`
+    : `<div class="mine"><b>${ids[i]}</b> <small>No longer on the server (it may have restarted).</small></div>`).join("");
+}
+loadMine();
+setInterval(loadMine, 20000);
 
 // Installable app (PWA): Android shows "Install app"; also the base for the Play Store APK.
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

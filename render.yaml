@@ -21,3 +21,7 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: OPERATOR_TOKEN
+        sync: false
+      - key: INGEST_TOKEN
+        sync: false
