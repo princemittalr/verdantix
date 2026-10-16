@@ -11,55 +11,85 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
-  :root { --forest: #0f2a1f; --lime: #a6e36b; --green: #1f9d55; --ink: #0f1d16; --muted: #66776d; --bg: #eef2ee; --card: #fff; --tint: #f3f6f3; --line: #e2e8e3;
-    --crit: #e5484d; --warn: #e8962b; --font: "Geist", "Segoe UI", system-ui, sans-serif; }
-  * { box-sizing: border-box; }
+  :root { --forest: #10261b; --lime: #b5f36a; --lime-2: #d6fba8; --green: #2f9e5b; --ink: #111611; --muted: #6b746c; --bg: #e8ece6; --card: #fff;
+    --tint: #f2f4f0; --line: #e3e7e1; --crit: #e5484d; --warn: #e8962b; --font: "Geist", "Segoe UI", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(16,38,27,.05), 0 18px 40px -18px rgba(16,38,27,.28); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin: 0; font: 16px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
-  header { position: sticky; top: 0; z-index: 5; background: var(--forest); color: #fff; padding: 14px 18px calc(14px); display: flex; align-items: center; gap: 12px; }
-  header b { font-size: 18px; } header small { display: block; color: #b9d0c1; font-size: 12.5px; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(232,236,230,.92); backdrop-filter: blur(10px); padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    display: flex; align-items: center; gap: 10px; max-width: 640px; margin: 0 auto; }
+  header::before { content: ""; width: 40px; height: 40px; flex: none; border-radius: 14px; background: var(--forest)
+    radial-gradient(circle at 50% 50%, var(--lime) 0 6px, transparent 7px); box-shadow: inset 0 0 0 9px var(--forest), inset 0 0 0 11px rgba(181,243,106,.5); }
+  header b { font-size: 17px; letter-spacing: -.02em; } header small { display: block; color: var(--muted); font-size: 12.5px; }
   header button { margin-left: auto; }
-  main { padding: 14px 14px 90px; max-width: 640px; margin: 0 auto; }
-  button { font: 700 15px var(--font); border-radius: 14px; border: 0; padding: 14px 16px; cursor: pointer; background: var(--tint); color: var(--ink); min-height: 48px; }
-  button.primary { background: var(--forest); color: #fff; } button.lime { background: var(--lime); color: var(--forest); }
-  button.ghost { background: transparent; color: #d7e6dc; padding: 8px 10px; min-height: 0; font-size: 13px; }
+  main { padding: 6px 16px calc(40px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  button { font: 700 15.5px var(--font); border-radius: 99px; border: 0; padding: 14px 18px; cursor: pointer; background: var(--tint); color: var(--ink); min-height: 52px; }
+  button.primary { background: var(--forest); color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 22px; }
+  button.primary::after { content: "→"; width: 42px; height: 42px; border-radius: 50%; background: var(--lime); color: var(--forest); display: grid; place-items: center; font-size: 20px; }
+  button.lime { background: var(--lime); color: var(--forest); }
+  button.ghost { background: #fff; color: var(--ink); padding: 8px 14px; min-height: 0; font-size: 13px; box-shadow: var(--shadow); }
   button:disabled { opacity: .5; }
   :focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
-  .card { background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(15,42,31,.06), 0 8px 24px -12px rgba(15,42,31,.2); }
-  h1 { font-size: 22px; margin: 6px 0 12px; } h2 { font-size: 18px; margin: 0 0 6px; }
+  .card { background: var(--card); border-radius: 30px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  h1 { font: 800 38px/1.02 var(--font); letter-spacing: -.045em; margin: 10px 0 6px; }
+  h1 em { font-style: normal; background: var(--lime); padding: 0 10px; border-radius: 14px; }
+  h2 { font: 800 21px/1.2 var(--font); letter-spacing: -.02em; margin: 0 0 6px; }
   .muted { color: var(--muted); font-size: 14px; }
-  .order { display: grid; gap: 6px; cursor: pointer; border: 2px solid transparent; }
-  .order.sel { border-color: var(--green); }
+  .lead { color: var(--muted); font-size: 14.5px; margin: 0 0 14px; }
+  /* job list: mission cards */
+  .order { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 14px; align-items: center; cursor: pointer; border: 2px solid transparent; border-radius: 26px; }
+  .order.sel { border-color: var(--forest); }
+  .order .ic { grid-row: 1 / span 3; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: var(--lime); color: var(--forest); }
+  .order .ic.crit { background: #fdeaea; color: var(--crit); }
+  .order .go { grid-column: 3; grid-row: 1 / span 3; width: 44px; height: 44px; border-radius: 50%; background: var(--forest); color: var(--lime); display: grid; place-items: center; font-size: 18px; }
+  .order .tt { font: 700 16px/1.3 var(--font); letter-spacing: -.01em; }
+  .prog { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 4px 0 2px; }
+  .prog i { height: 6px; border-radius: 3px; background: var(--line); } .prog i.on { background: var(--green); } .prog i.now { background: var(--lime); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .pill { display: inline-block; padding: 3px 10px; border-radius: 99px; font: 700 12.5px var(--font); background: var(--tint); }
+  .pill { display: inline-block; padding: 4px 11px; border-radius: 99px; font: 700 12.5px var(--font); background: var(--tint); }
   .pill.late { background: #fdeaea; color: #9b1f1b; } .pill.crit { background: #fdeaea; color: #9b1f1b; } .pill.warn { background: #fdf1df; color: #8a5207; }
-  .pill.ok { background: #e2f5e7; color: #146c3c; }
-  #map { height: 300px; border-radius: 16px; overflow: hidden; margin: 10px 0; background: #e3ebe4; }
-  .dist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
-  .dist div { background: var(--tint); border-radius: 14px; padding: 10px 12px; } .dist b { display: block; font-size: 22px; } .dist span { font-size: 12.5px; color: var(--muted); }
-  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .pill.ok { background: var(--lime); color: var(--forest); }
+  select { appearance: none; }
+  input, select, textarea { font: 500 16px var(--font); width: 100%; padding: 14px 16px; border-radius: 18px; border: 1.5px solid transparent; background: var(--tint); color: var(--ink); }
+  input:focus, select:focus, textarea:focus { border-color: var(--forest); background: #fff; outline: none; }
+  #team { background: #fff; box-shadow: var(--shadow); border-radius: 99px; }
+  /* job detail: map first, mission sheet below */
+  #detail { padding: 0 18px 4px; overflow: hidden; }
+  #detail h2 { margin-top: 18px; }
+  #map { height: 340px; border-radius: 26px; overflow: hidden; margin: 12px -10px !important; background: #dfe7e0; }
+  .dist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: -66px 2px 10px !important; position: relative; z-index: 2; }
+  .dist div { background: rgba(255,255,255,.94); backdrop-filter: blur(8px); border-radius: 20px; padding: 10px 14px; box-shadow: var(--shadow); }
+  .dist b { display: block; font: 800 24px var(--font); letter-spacing: -.03em; } .dist span { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
   .actions .wide { grid-column: 1 / -1; }
-  input, select, textarea { font: 16px var(--font); width: 100%; padding: 13px 14px; border-radius: 14px; border: 1px solid var(--line); background: #fff; }
-  .msg { padding: 10px 12px; border-radius: 12px; background: var(--tint); font-size: 14.5px; margin-top: 10px; }
-  .msg.err { background: #fdeaea; color: #9b1f1b; } .msg.ok { background: #e2f5e7; color: #146c3c; }
-  img.ev { width: 100%; border-radius: 14px; margin-top: 8px; }
-  .loc { font-size: 14px; padding: 8px 12px; border-radius: 12px; background: #e2f5e7; color: #146c3c; margin: 8px 0; }
-  .loc.warn { background: #fdf1df; color: #8a5207; } .loc.err { background: #fdeaea; color: #9b1f1b; }
-  .tl { font-size: 13.5px; color: var(--ink); padding-left: 16px; margin: 6px 0 0; } .tl li { margin-bottom: 4px; } .tl span { color: var(--muted); }
-  .me { width: 18px; height: 18px; border-radius: 50%; background: #2c6bed; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(44,107,237,.25); }
+  .actions a { text-decoration: none; }
+  .msg { padding: 12px 14px; border-radius: 18px; background: var(--tint); font-size: 14.5px; margin-top: 10px; font-weight: 600; }
+  .msg.err { background: #fdeaea; color: #9b1f1b; } .msg.ok { background: var(--lime-2); color: var(--forest); }
+  img.ev { width: 100%; border-radius: 22px; margin-top: 12px; }
+  .loc { font: 600 14px var(--font); padding: 12px 14px; border-radius: 18px; background: var(--lime-2); color: var(--forest); margin: 10px 0 0; display: flex; gap: 10px; align-items: center; }
+  .loc::before { content: ""; width: 12px; height: 12px; flex: none; border-radius: 50%; background: var(--forest); box-shadow: 0 0 0 5px var(--lime); }
+  .loc.warn { background: #fdf1df; color: #8a5207; } .loc.warn::before { background: var(--warn); box-shadow: 0 0 0 5px #f7e3c2; }
+  .loc.err { background: #fdeaea; color: #9b1f1b; } .loc.err::before { background: var(--crit); box-shadow: 0 0 0 5px #f8cfd0; }
+  details { margin: 14px 0 18px !important; } summary { cursor: pointer; font-weight: 700; }
+  .tl { font-size: 13.5px; color: var(--ink); padding-left: 18px; margin: 8px 0 0; } .tl li { margin-bottom: 6px; } .tl span { color: var(--muted); }
+  .me { width: 18px; height: 18px; border-radius: 50%; background: #2c6bed; border: 3px solid #fff; box-shadow: 0 0 0 7px rgba(44,107,237,.25); }
+  #signin h1 { margin-top: 0; }
+  #signin button.primary { width: 100%; margin-top: 12px; }
 </style>
 </head>
 <body>
 <header><div><b>Verdantix Maintainer</b><small id="who">Assigned work, route and proof</small></div><button class="ghost" id="signout" hidden>Sign out</button></header>
 <main>
   <section id="signin" class="card" hidden>
-    <h1>Sign in</h1>
-    <p class="muted">For maintenance staff. Use the maintainer passcode from facilities (operators can use theirs).</p>
+    <h1>Ready for<br>your <em>jobs?</em></h1>
+    <p class="lead">For maintenance staff. Use the maintainer passcode from facilities (operators can use theirs).</p>
     <form id="sf"><input id="pass" type="password" autocomplete="current-password" placeholder="Passcode" required aria-label="Passcode">
-      <button class="primary" style="width:100%;margin-top:10px">Sign in</button><p id="smsg" class="msg err" hidden></p></form>
+      <button class="primary">Sign in</button><p id="smsg" class="msg err" hidden></p></form>
   </section>
 
   <section id="list" hidden>
-    <h1>My work orders</h1>
+    <h1>Your <em>jobs</em><br>today</h1>
+    <p class="lead" id="jobCount">Loading…</p>
     <div class="row" style="margin-bottom:10px"><select id="team" aria-label="Filter by team"><option value="">All teams</option></select></div>
     <div id="orders"></div>
   </section>
@@ -117,12 +147,18 @@ function renderList() {
   const cur = $("#team").value;
   $("#team").innerHTML = `<option value="">All teams</option>` + teams.map((t) => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
   const os = openOrders();
+  $("#jobCount").textContent = os.length ? `${os.length} open job${os.length === 1 ? "" : "s"}${os.some((o) => o.overdue) ? " · some overdue" : ""}. Tap one to see the route.` : "Nothing assigned right now.";
   $("#orders").innerHTML = os.length ? os.map((o) => {
     const a = S.alerts.find((x) => x.id === o.alert_id) || {};
-    return `<div class="card order ${o.id === sel ? "sel" : ""}" data-o="${o.id}" role="button" tabindex="0">
-      <div class="row"><b>${esc(o.id)}</b><span class="pill ${a.severity || ""}">${a.severity === "crit" ? "Critical" : "Attention"}</span>
-        ${o.overdue ? '<span class="pill late">Overdue</span>' : ""}<span class="pill">${esc(o.status.replace(/_/g, " "))}</span></div>
-      <div>${esc(o.title)}</div><div class="muted">${esc(o.team)} · due ${when(o.deadline)}</div></div>`;
+    const step = { assigned: 1, reopened: 1, acknowledged: 2, in_progress: 3, awaiting_verification: 4 }[o.status] || 1;
+    const icon = { water: "💧", energy: "⚡", waste: "♻️" }[a.kind] || "🛠️";
+    return `<div class="card order ${o.id === sel ? "sel" : ""}" data-o="${o.id}" role="button" tabindex="0" aria-label="Open ${esc(o.id)}">
+      <span class="ic ${a.severity === "crit" ? "crit" : ""}" aria-hidden="true">${icon}</span>
+      <div class="tt">${esc(o.title)}</div>
+      <div class="prog" aria-label="Step ${step} of 4">${[1, 2, 3, 4].map((k) => `<i class="${k < step ? "on" : k === step ? "now" : ""}"></i>`).join("")}</div>
+      <div class="row"><span class="pill ${a.severity === "crit" ? "crit" : "warn"}">${a.severity === "crit" ? "Critical" : "Attention"}</span>
+        ${o.overdue ? '<span class="pill late">Overdue</span>' : ""}<span class="muted">${esc(o.status.replace(/_/g, " "))} · due ${when(o.deadline)}</span></div>
+      <span class="go" aria-hidden="true">→</span></div>`;
   }).join("") : `<div class="card"><h2>No open work orders</h2><p class="muted">When facilities assign a problem, it appears here.</p></div>`;
 }
 $("#orders").addEventListener("click", (e) => { const c = e.target.closest("[data-o]"); if (c) { sel = c.dataset.o; renderList(); renderDetail(true); } });
